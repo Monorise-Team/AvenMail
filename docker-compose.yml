@@ -1,5 +1,8 @@
 # Lokalny serwer poczty do testów silnika (GreenMail): IMAP 3143 (bez TLS) i 3993 (TLS), SMTP 3025 i 3465.
 # Każdy adres i hasło są akceptowane, konta zakładają się same. Uruchom: pnpm mail:test-server
+# Kontenery mają przedrostek aven-mail (małe litery, wyrazy z myślnikiem).
+name: aven-mail
+
 services:
   greenmail:
     image: greenmail/standalone:2.1.5
