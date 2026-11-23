@@ -35,29 +35,19 @@ export interface ApiResponse<T> {
   error: ApiErrorBody | null;
 }
 
-// ── Konto i sesja ───────────────────────────────────────────────────────────
+// ── Zalogowana osoba ────────────────────────────────────────────────────────
 
+/**
+ * Konto Monorise i jego firma (logowanie przez MonoriseCore, ADR-0095). Imię i e-mail podaje Core;
+ * gdy Core jest chwilowo niedostępny, mogą być puste.
+ */
 export const User = z.object({
   id: z.string(),
-  email: z.string(),
-  name: z.string(),
+  organizationId: z.string(),
+  email: z.string().nullable(),
+  name: z.string().nullable(),
 });
 export type User = z.infer<typeof User>;
-
-/** Logowanie deweloperskie (tylko lokalnie, dopóki nie ma logowania przez Core, ADR-0090). */
-export const DevSignInRequest = z.object({
-  email: z.email().max(254),
-  name: z.string().trim().min(1).max(120),
-});
-export type DevSignInRequest = z.infer<typeof DevSignInRequest>;
-
-export const Session = z.object({
-  user: User,
-  /** Token dla aplikacji na komputer i telefon; przeglądarka dostaje ciasteczko i go nie widzi. */
-  token: z.string().nullable(),
-  expiresAt: z.string(),
-});
-export type Session = z.infer<typeof Session>;
 
 // ── Skrzynki ────────────────────────────────────────────────────────────────
 

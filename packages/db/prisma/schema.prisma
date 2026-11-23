@@ -1,0 +1,72 @@
+// Baza aven_mail (ADR-0096): tylko konfiguracja skrzynek i sesje przeglądarki. Treści maili tu nie ma (ADR-0088).
+// Osoba i firma pochodzą z MonoriseCore (sub i org_id z tokenu), więc AvenMail nie ma własnych kont.
+// Schemat "auth": sesje przeglądarki (BFF, @monorise-team/auth). Szukamy ich po skrócie identyfikatora z ciasteczka,
+// zanim wiadomo, czyja to sesja, więc są bez RLS; tokeny w środku są zaszyfrowane.
+// Schemat "public": dane osób z firm, z RLS po firmie i osobie (migracja). Aplikacja łączy się rolą aven_mail_app
+// bez uprawnień właściciela tabel (ADR-0037).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["public", "auth"]
+}
+
+/// Sesja przeglądarki: tokeny z Core zaszyfrowane po stronie serwera (ADR-0050).
+model Session {
+  /// SHA-256 identyfikatora z ciasteczka; samego identyfikatora baza nie zna.
+  id             String   @id
+  /// Konto Monorise (sub z tokenu Core).
+  userId         String   @map("user_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  expiresAt      DateTime @map("expires_at") @db.Timestamptz(3)
+  /// Zaszyfrowane tokeny, kontekst firmy i dane osoby.
+  data           String
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+  @@schema("auth")
+}
+
+enum MailSecurity {
+  ssl
+  starttls
+  none
+
+  @@map("mail_security")
+  @@schema("public")
+}
+
+/// Skrzynka pocztowa osoby: adresy serwerów i zaszyfrowane hasło (ADR-0088).
+model MailAccount {
+  id                 String       @id @db.Uuid
+  organizationId     String       @map("organization_id") @db.Uuid
+  /// Konto Monorise właściciela skrzynki (sub z tokenu Core).
+  userId             String       @map("user_id") @db.Uuid
+  email              String
+  displayName        String?      @map("display_name")
+  username           String?
+  imapHost           String       @map("imap_host")
+  imapPort           Int          @map("imap_port")
+  imapSecurity       MailSecurity @map("imap_security")
+  smtpHost           String       @map("smtp_host")
+  smtpPort           Int          @map("smtp_port")
+  smtpSecurity       MailSecurity @map("smtp_security")
+  /// Hasło zaszyfrowane AES-256-GCM, związane z id skrzynki i osoby (apps/web/src/server/crypto.ts).
+  passwordCiphertext String       @map("password_ciphertext")
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([userId, email])
+  @@index([organizationId])
+  @@map("mail_accounts")
+  @@schema("public")
+}

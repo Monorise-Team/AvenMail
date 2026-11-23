@@ -1,12 +1,11 @@
 import "server-only";
 import type { MailAccount, MailAccountInput } from "@aven/contracts";
+import { uuidv7, withUser, type Actor, type MailAccountModel as MailAccountRow } from "@aven/db";
 import { verifyMailbox, type HostPolicy, type MailboxConfig } from "@aven/mail-engine";
-import { and, asc, eq } from "drizzle-orm";
 import { ApiFailure } from "./api";
 import { config } from "./config";
 import { decryptSecret, encryptSecret } from "./crypto";
-import { getDb, schema } from "./db/client";
-import { uuidv7 } from "./ids";
+import { getDb } from "./db";
 
 /** Polityka połączeń: na produkcji tylko publiczne serwery i szyfrowanie; lokalnie także GreenMail. */
 export const policy = (): HostPolicy => ({
@@ -14,11 +13,17 @@ export const policy = (): HostPolicy => ({
   allowInsecure: config.allowPrivateMailHosts,
 });
 
-const passwordContext = (userId: string, accountId: string) => `mail_accounts:${accountId}:${userId}`;
+/** Hasło jest związane ze skrzynką i jej właścicielem (konto Monorise), więc nie da się go przenieść. */
+const passwordContext = (userId: string, mailboxId: string) => `mail_accounts:${mailboxId}:${userId}`;
 
-type Row = typeof schema.mailAccounts.$inferSelect;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function toAccount(row: Row): MailAccount {
+/** Identyfikator z adresu: inny niż UUID to po prostu brak skrzynki, a nie błąd bazy. */
+function assertMailboxId(mailboxId: string): void {
+  if (!UUID.test(mailboxId)) throw new ApiFailure(404, "NOT_FOUND", "Nie ma takiej skrzynki");
+}
+
+function toAccount(row: MailAccountRow): MailAccount {
   return {
     id: row.id,
     email: row.email,
@@ -30,13 +35,9 @@ function toAccount(row: Row): MailAccount {
   };
 }
 
-export async function listAccounts(userId: string): Promise<MailAccount[]> {
-  const db = await getDb();
-  const rows = await db
-    .select()
-    .from(schema.mailAccounts)
-    .where(eq(schema.mailAccounts.userId, userId))
-    .orderBy(asc(schema.mailAccounts.createdAt));
+/** Skrzynki osoby. RLS w bazie i tak nie pokaże cudzych (ADR-0037). */
+export async function listAccounts(actor: Actor): Promise<MailAccount[]> {
+  const rows = await withUser(getDb(), actor, (tx) => tx.mailAccount.findMany({ orderBy: { createdAt: "asc" } }));
   return rows.map(toAccount);
 }
 
@@ -55,63 +56,51 @@ export async function testAccount(input: MailAccountInput): Promise<void> {
 }
 
 /** Zapisuje skrzynkę po udanym połączeniu; hasło szyfruje, nigdy go nie zwraca. */
-export async function createAccount(userId: string, input: MailAccountInput): Promise<MailAccount> {
+export async function createAccount(actor: Actor, input: MailAccountInput): Promise<MailAccount> {
+  // Połączenie z serwerem poczty trwa, więc odbywa się przed transakcją w bazie.
   await verifyMailbox(toConfig(input), policy());
-  const db = await getDb();
   const email = input.email.toLowerCase();
-  const [existing] = await db
-    .select({ id: schema.mailAccounts.id })
-    .from(schema.mailAccounts)
-    .where(and(eq(schema.mailAccounts.userId, userId), eq(schema.mailAccounts.email, email)))
-    .limit(1);
-  const id = existing?.id ?? uuidv7();
-  const values = {
-    id,
-    userId,
-    email,
-    displayName: input.displayName || null,
-    username: input.username || null,
-    imapHost: input.imap.host.toLowerCase(),
-    imapPort: input.imap.port,
-    imapSecurity: input.imap.security,
-    smtpHost: input.smtp.host.toLowerCase(),
-    smtpPort: input.smtp.port,
-    smtpSecurity: input.smtp.security,
-    passwordCiphertext: encryptSecret(input.password, passwordContext(userId, id)),
-    updatedAt: new Date(),
-  };
-  const [row] = await db
-    .insert(schema.mailAccounts)
-    .values(values)
-    .onConflictDoUpdate({ target: schema.mailAccounts.id, set: values })
-    .returning();
-  return toAccount(row!);
+  const row = await withUser(getDb(), actor, async (tx) => {
+    const existing = await tx.mailAccount.findFirst({ where: { email }, select: { id: true } });
+    const id = existing?.id ?? uuidv7();
+    const values = {
+      email,
+      displayName: input.displayName || null,
+      username: input.username || null,
+      imapHost: input.imap.host.toLowerCase(),
+      imapPort: input.imap.port,
+      imapSecurity: input.imap.security,
+      smtpHost: input.smtp.host.toLowerCase(),
+      smtpPort: input.smtp.port,
+      smtpSecurity: input.smtp.security,
+      passwordCiphertext: encryptSecret(input.password, passwordContext(actor.userId, id)),
+    };
+    return tx.mailAccount.upsert({
+      where: { id },
+      create: { id, organizationId: actor.organizationId, userId: actor.userId, ...values },
+      update: values,
+    });
+  });
+  return toAccount(row);
 }
 
-export async function deleteAccount(userId: string, accountId: string): Promise<void> {
-  const db = await getDb();
-  const deleted = await db
-    .delete(schema.mailAccounts)
-    .where(and(eq(schema.mailAccounts.id, accountId), eq(schema.mailAccounts.userId, userId)))
-    .returning({ id: schema.mailAccounts.id });
-  if (!deleted.length) throw new ApiFailure(404, "NOT_FOUND", "Nie ma takiej skrzynki");
+export async function deleteAccount(actor: Actor, mailboxId: string): Promise<void> {
+  assertMailboxId(mailboxId);
+  const deleted = await withUser(getDb(), actor, (tx) => tx.mailAccount.deleteMany({ where: { id: mailboxId } }));
+  if (!deleted.count) throw new ApiFailure(404, "NOT_FOUND", "Nie ma takiej skrzynki");
 }
 
-/** Konfiguracja połączenia skrzynki należącej do użytkownika, z odszyfrowanym hasłem (tylko w pamięci). */
-export async function mailboxConfig(userId: string, accountId: string): Promise<MailboxConfig> {
-  const db = await getDb();
-  const [row] = await db
-    .select()
-    .from(schema.mailAccounts)
-    .where(and(eq(schema.mailAccounts.id, accountId), eq(schema.mailAccounts.userId, userId)))
-    .limit(1);
+/** Konfiguracja połączenia skrzynki osoby, z odszyfrowanym hasłem (tylko w pamięci). */
+export async function mailboxConfig(actor: Actor, mailboxId: string): Promise<MailboxConfig> {
+  assertMailboxId(mailboxId);
+  const row = await withUser(getDb(), actor, (tx) => tx.mailAccount.findFirst({ where: { id: mailboxId } }));
   if (!row) throw new ApiFailure(404, "NOT_FOUND", "Nie ma takiej skrzynki");
   const account = toAccount(row);
   return {
     email: account.email,
     displayName: account.displayName,
     username: account.username,
-    password: decryptSecret(row.passwordCiphertext, passwordContext(userId, row.id)),
+    password: decryptSecret(row.passwordCiphertext, passwordContext(actor.userId, row.id)),
     imap: account.imap,
     smtp: account.smtp,
   };

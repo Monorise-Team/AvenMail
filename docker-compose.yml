@@ -1,9 +1,20 @@
-# Lokalny serwer poczty do testów silnika (GreenMail): IMAP 3143 (bez TLS) i 3993 (TLS), SMTP 3025 i 3465.
-# Każdy adres i hasło są akceptowane, konta zakładają się same. Uruchom: pnpm mail:test-server
-# Kontenery mają przedrostek aven-mail (małe litery, wyrazy z myślnikiem).
+# Lokalna baza i serwer poczty do pracy nad AvenMail:
+# - PostgreSQL (pnpm db:up, potem pnpm db:migrate) na porcie 5434, żeby nie zderzyć się z Core (5433),
+# - GreenMail do testów silnika (pnpm mail:test-server): IMAP 3143 (bez TLS) i 3993 (TLS), SMTP 3025 i 3465.
+#   Każdy adres i hasło są akceptowane, konta zakładają się same.
+# Kontenery i wolumen mają przedrostek aven-mail (małe litery, wyrazy z myślnikiem).
 name: aven-mail
 
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - aven-mail-postgres:/var/lib/postgresql/data
   greenmail:
     image: greenmail/standalone:2.1.5
     environment:
@@ -13,3 +24,6 @@ services:
       - "127.0.0.1:3143:3143"
       - "127.0.0.1:3465:3465"
       - "127.0.0.1:3993:3993"
+
+volumes:
+  aven-mail-postgres:

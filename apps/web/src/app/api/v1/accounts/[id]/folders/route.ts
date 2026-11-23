@@ -7,5 +7,5 @@ export const dynamic = "force-dynamic";
 
 export const GET = route<{ id: string }>(async ({ request, params }) => {
   const user = await requireUser(request);
-  return listFolders(await mailboxConfig(user.id, params.id), policy());
+  return listFolders(await mailboxConfig(user, params.id), policy());
 });

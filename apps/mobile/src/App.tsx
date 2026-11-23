@@ -2,7 +2,7 @@ import { ApiError, createClient, type Folder, type MailAccount, type Message, ty
 import Constants from "expo-constants";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { readToken, writeToken } from "./session";
 import { colors, gap, radius } from "./theme";
@@ -57,7 +57,7 @@ export function App() {
         ) : token ? (
           <Mailbox client={client} onSignOut={() => signIn(null)} />
         ) : (
-          <SignIn client={client} onSignedIn={signIn} />
+          <SignIn />
         )}
       </SafeAreaView>
     </SafeAreaProvider>
@@ -68,54 +68,19 @@ function Centered({ children }: { children: ReactNode }) {
   return <View style={styles.centered}>{children}</View>;
 }
 
-function SignIn({
-  client,
-  onSignedIn,
-}: {
-  client: ReturnType<typeof createClient>;
-  onSignedIn: (token: string | null) => void;
-}) {
-  const [email, setEmail] = useState("anna@acme.com");
-  const [name, setName] = useState("Anna Kowalska");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function submit() {
-    setBusy(true);
-    setError(null);
-    try {
-      const session = await client.session.devSignIn({ email, name, app: true });
-      onSignedIn(session.token);
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
+/**
+ * Logowanie kontem Monorise przez przeglądarkę systemową powstaje w osobnym zgłoszeniu (#8). Do tego czasu
+ * aplikacja na telefon nie loguje się wcale: logowania deweloperskiego już nie ma.
+ */
+function SignIn() {
   return (
     <View style={[styles.card, styles.signIn]}>
       <Text style={styles.title}>Zaloguj się do AvenMail</Text>
-      <Text style={styles.muted}>Logowanie deweloperskie. Docelowo logujesz się kontem Monorise.</Text>
-      <TextInput
-        style={styles.input}
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        placeholder="Adres e-mail"
-        placeholderTextColor={colors["text-tertiary"]}
-      />
-      <TextInput
-        style={styles.input}
-        value={name}
-        onChangeText={setName}
-        placeholder="Imię i nazwisko"
-        placeholderTextColor={colors["text-tertiary"]}
-      />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Pressable style={styles.primary} onPress={submit} disabled={busy} accessibilityRole="button">
-        <Text style={styles.primaryText}>{busy ? "Logowanie…" : "Zaloguj się"}</Text>
+      <Text style={styles.muted}>
+        Logujesz się kontem Monorise. Logowanie w aplikacji na telefon pojawi się w kolejnej wersji.
+      </Text>
+      <Pressable style={[styles.primary, styles.disabled]} disabled accessibilityRole="button">
+        <Text style={styles.primaryText}>Zaloguj się kontem Monorise</Text>
       </Pressable>
     </View>
   );
@@ -379,6 +344,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
   },
   signIn: { margin: 16, marginTop: 80, padding: 20, gap: 12 },
+  disabled: { opacity: 0.5 },
   reader: { margin: gap, padding: 20, gap: 12 },
   list: { padding: gap, gap: 6 },
   row: {
@@ -406,16 +372,6 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     fontSize: 12,
     fontWeight: "600",
-  },
-  input: {
-    color: colors["text-primary"],
-    backgroundColor: colors["bg-tertiary"],
-    borderColor: colors["border-primary"],
-    borderWidth: 1,
-    borderRadius: radius.control,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
   },
   primary: { backgroundColor: colors.accent, borderRadius: 999, paddingVertical: 12, alignItems: "center" },
   primaryText: { color: colors["accent-fg"], fontSize: 15, fontWeight: "600" },

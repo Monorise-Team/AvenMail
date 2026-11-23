@@ -1,85 +1,85 @@
 import "server-only";
-import { randomBytes } from "node:crypto";
-import type { Session, User } from "@aven/contracts";
-import { and, eq, gt } from "drizzle-orm";
-import type { NextRequest } from "next/server";
-import { ApiFailure, type CookieJar } from "./api";
+import type { User } from "@aven/contracts";
+import type { Actor } from "@aven/db";
+import { AuthError, AuthUnavailableError, bearerToken, fetchUserInfo, type AuthContext } from "@monorise-team/auth";
+import { createWebAuth, type Session, type WebAuth } from "@monorise-team/auth/next";
+import { createLocalJWKSet } from "jose";
+import { ApiFailure } from "./api";
 import { config } from "./config";
-import { hashToken } from "./crypto";
-import { getDb, schema } from "./db/client";
-import { uuidv7 } from "./ids";
+import { sessionStore } from "./sessions";
 
-export const SESSION_COOKIE = "aven_session";
-const DAY = 24 * 60 * 60 * 1000;
-const LIFETIME = { web: 30 * DAY, app: 90 * DAY } as const;
-
-function tokenFrom(request: NextRequest): string | null {
-  const header = request.headers.get("authorization");
-  if (header?.startsWith("Bearer ")) return header.slice(7).trim() || null;
-  return request.cookies.get(SESSION_COOKIE)?.value ?? null;
-}
-
-/** Zalogowany użytkownik albo błąd UNAUTHENTICATED. */
-export async function requireUser(request: NextRequest): Promise<User> {
-  const token = tokenFrom(request);
-  if (!token) throw new ApiFailure(401, "UNAUTHENTICATED", "Brak sesji");
-  const db = await getDb();
-  const [row] = await db
-    .select({ id: schema.users.id, email: schema.users.email, name: schema.users.name })
-    .from(schema.sessions)
-    .innerJoin(schema.users, eq(schema.users.id, schema.sessions.userId))
-    .where(and(eq(schema.sessions.tokenHash, hashToken(token)), gt(schema.sessions.expiresAt, new Date())))
-    .limit(1);
-  if (!row) throw new ApiFailure(401, "UNAUTHENTICATED", "Sesja wygasła albo nie istnieje");
-  return row;
-}
+let instance: WebAuth | undefined;
 
 /**
- * Logowanie deweloperskie (ADR-0090): tylko z AVEN_DEV_AUTH=1, dopóki nie ma logowania przez Core.
- * Przeglądarka dostaje ciasteczko niedostępne dla skryptów, aplikacje token.
+ * Logowanie przez MonoriseCore (ADR-0095): przeglądarka przez BFF z sesją w bazie AvenMail (ADR-0050),
+ * aplikacje na komputer i telefon tokenem z Core w nagłówku Authorization. Tworzone przy pierwszym użyciu,
+ * żeby build działał bez sekretów.
  */
-export async function devSignIn(
-  input: { email: string; name: string; app: boolean },
-  cookies: CookieJar,
-): Promise<Session> {
-  if (!config.devAuth) throw new ApiFailure(403, "PERMISSION_DENIED", "Logowanie deweloperskie jest wyłączone");
-  const db = await getDb();
-  const email = input.email.toLowerCase();
-  await db
-    .insert(schema.users)
-    .values({ id: uuidv7(), email, name: input.name })
-    .onConflictDoUpdate({ target: schema.users.email, set: { name: input.name } });
-  const [user] = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
-  if (!user) throw new ApiFailure(500, "INTERNAL", "Nie udało się zapisać użytkownika");
-
-  const kind = input.app ? "app" : "web";
-  const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + LIFETIME[kind]);
-  await db
-    .insert(schema.sessions)
-    .values({ id: uuidv7(), userId: user.id, tokenHash: hashToken(token), kind, expiresAt });
-
-  if (kind === "web") {
-    cookies.set(SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: config.secureCookies,
-      sameSite: "lax",
-      path: "/",
-      expires: expiresAt,
-    });
-  }
-  return {
-    user: { id: user.id, email: user.email, name: user.name },
-    token: kind === "app" ? token : null,
-    expiresAt: expiresAt.toISOString(),
-  };
+export function getAuth(): WebAuth {
+  instance ??= createWebAuth({
+    issuer: config.coreAuthUrl,
+    clientId: config.oauthClientId,
+    clientSecret: config.oauthClientSecret || undefined,
+    appUrl: config.appUrl,
+    // Pierwsze API to AvenMail (tokeny sesji), drugie Core API (np. uprawnienia).
+    resources: [config.apiUrl, config.coreApiUrl],
+    secret: config.sessionSecrets,
+    store: sessionStore,
+    keys: config.coreJwks ? createLocalJWKSet(JSON.parse(config.coreJwks) as { keys: [] }) : undefined,
+  });
+  return instance;
 }
 
-export async function signOut(request: NextRequest, cookies: CookieJar): Promise<void> {
-  const token = tokenFrom(request);
-  if (token) {
-    const db = await getDb();
-    await db.delete(schema.sessions).where(eq(schema.sessions.tokenHash, hashToken(token)));
+/** Kto pyta: konto Monorise i jego firma (zawsze z tokenu albo sesji Core, ADR-0037). */
+export interface Caller extends Actor {
+  /** Konto Monorise (to samo co userId); pole zostaje dla kluczy limitów i logów. */
+  id: string;
+  context: AuthContext;
+  session: Session | null;
+  /** Token z nagłówka Authorization, gdy pyta aplikacja na komputer albo telefon. */
+  token: string | null;
+}
+
+/** Zalogowana osoba albo błąd UNAUTHENTICATED (401), PERMISSION_DENIED (403, CSRF) lub 503 przy awarii Core. */
+export async function requireUser(request: Request): Promise<Caller> {
+  try {
+    const { context, session, via } = await getAuth().authenticate(request);
+    return {
+      id: context.accountId,
+      userId: context.accountId,
+      organizationId: context.organizationId,
+      context,
+      session,
+      token: via === "bearer" ? bearerToken(request.headers.get("authorization")) : null,
+    };
+  } catch (error) {
+    if (error instanceof AuthError) {
+      throw new ApiFailure(
+        error.statusCode,
+        error.code,
+        error.code === "UNAUTHENTICATED" ? "Zaloguj się kontem Monorise" : "Żądanie spoza AvenMail",
+      );
+    }
+    if (error instanceof AuthUnavailableError) {
+      throw new ApiFailure(503, "INTERNAL", "Logowanie Monorise jest chwilowo niedostępne");
+    }
+    throw error;
   }
-  cookies.delete(SESSION_COOKIE);
+}
+
+/** Dane zalogowanej osoby: w przeglądarce z sesji, w aplikacjach z Core (userinfo). */
+export async function currentUser(request: Request): Promise<User> {
+  const caller = await requireUser(request);
+  let profile = caller.session?.profile ?? null;
+  if (!profile && caller.token) {
+    profile = await fetchUserInfo({ issuer: config.coreAuthUrl, accessToken: caller.token })
+      .then((info) => ({ email: info.email ?? null, name: info.name ?? null }))
+      .catch(() => null);
+  }
+  return {
+    id: caller.userId,
+    organizationId: caller.organizationId,
+    email: profile?.email ?? null,
+    name: profile?.name ?? null,
+  };
 }
