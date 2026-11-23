@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": false,
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "avenmail",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
+      "extra-files": [
+        { "type": "json", "path": "apps/web/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/desktop/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "apps/mobile/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "packages/contracts/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "packages/client/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "packages/mail-engine/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "packages/mail-ui/package.json", "jsonpath": "$.version" },
+        { "type": "generic", "path": "apps/desktop/src-tauri/Cargo.toml" }
+      ]
+    }
+  }
+}

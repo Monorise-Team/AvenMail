@@ -1,0 +1,65 @@
+name: CI
+
+# Pełne kontrole na każdym pull requeście i wypchnięciu na dev i prod (repozytorium publiczne, ADR-0086):
+# formatowanie, zgodność wersji części, lint, typy, testy (silnik poczty i API na prawdziwym serwerze
+# GreenMail) i build. Osobno powłoka Tauri: cargo check na Linuksie.
+
+on:
+  pull_request:
+  push:
+    branches: [dev, prod]
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Format, lint, types, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      greenmail:
+        image: greenmail/standalone:2.1.5
+        env:
+          GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled"
+        ports:
+          - 3025:3025
+          - 3143:3143
+    env:
+      HUSKY: 0
+      AVEN_TEST_IMAP_HOST: 127.0.0.1
+      GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+  desktop:
+    name: Desktop (cargo check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tauri system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      # Tauri wymaga zbudowanych ekranów przy kompilacji; do sprawdzenia wystarczy pusty katalog
+      - run: mkdir -p ../dist && cargo check --locked
