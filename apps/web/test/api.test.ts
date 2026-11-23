@@ -1,17 +1,20 @@
 /**
- * API na prawdziwych trasach Next.js: baza PGlite w pamięci i serwer poczty GreenMail
- * (`pnpm mail:test-server` albo usługa w CI). Część z GreenMail pomija się bez AVEN_TEST_IMAP_HOST.
+ * API na prawdziwych trasach Next.js: PostgreSQL z RLS (pnpm db:up && pnpm db:migrate albo usługa w CI)
+ * i serwer poczty GreenMail (`pnpm mail:test-server`). Część z GreenMail pomija się bez AVEN_TEST_IMAP_HOST.
+ * Tokeny podpisuje testowy klucz „Core” (test/setup.ts).
  */
 import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 import * as accounts from "@/app/api/v1/accounts/route";
 import * as folders from "@/app/api/v1/accounts/[id]/folders/route";
+import * as mailbox from "@/app/api/v1/accounts/[id]/route";
 import * as messages from "@/app/api/v1/accounts/[id]/messages/route";
 import * as one from "@/app/api/v1/accounts/[id]/messages/[uid]/route";
 import * as send from "@/app/api/v1/accounts/[id]/send/route";
 import * as me from "@/app/api/v1/me/route";
-import * as session from "@/app/api/v1/session/route";
+import * as signInRoute from "@/app/api/auth/sign-in/route";
+import { API, CORE, coreToken } from "./setup";
 
 const BASE = "http://aven.localhost:3000/api/v1";
 
@@ -37,13 +40,12 @@ function call<P>(
   }));
 }
 
-async function signIn(app = true) {
-  const { body, response } = await call(session.POST, "/session", {
-    method: "POST",
-    body: { email: `anna-${randomUUID().slice(0, 6)}@acme.test`, name: "Anna Kowalska", app },
-    headers: { origin: "http://aven.localhost:3000" },
-  });
-  return { token: body.data.token as string | null, cookie: response.headers.get("set-cookie") };
+const ACME = randomUUID();
+
+/** Osoba zalogowana w Core: token, jaki dostaje aplikacja na komputer albo telefon. */
+async function signIn(organizationId = ACME) {
+  const userId = randomUUID();
+  return { userId, organizationId, token: await coreToken({ userId, organizationId }) };
 }
 
 describe("API: sesja i błędy", () => {
@@ -55,22 +57,38 @@ describe("API: sesja i błędy", () => {
     expect(body.meta.requestId).toMatch(/^req_/);
   });
 
-  it("aplikacja dostaje token, przeglądarka ciasteczko HttpOnly", async () => {
-    const app = await signIn(true);
-    expect(app.token).toBeTruthy();
-    const { body } = await call(me.GET, "/me", { token: app.token! });
-    expect(body.data.name).toBe("Anna Kowalska");
+  it("przyjmuje token z Core i podaje osobę z jej firmą", async () => {
+    const anna = await signIn();
+    const { status, body } = await call(me.GET, "/me", { token: anna.token });
+    expect(status).toBe(200);
+    expect(body.data).toMatchObject({ id: anna.userId, organizationId: ACME });
+  });
 
-    const web = await signIn(false);
-    expect(web.token).toBeNull();
-    expect(web.cookie).toMatch(/aven_session=.*HttpOnly/i);
+  it("odrzuca token dla innego API i token po terminie", async () => {
+    const userId = randomUUID();
+    const otherApi = await coreToken({ userId, organizationId: ACME, audience: "http://localhost:3200" });
+    expect((await call(me.GET, "/me", { token: otherApi })).status).toBe(401);
+    const expired = await coreToken({ userId, organizationId: ACME, expiresIn: "-1m" });
+    expect((await call(me.GET, "/me", { token: expired })).body.error.code).toBe("UNAUTHENTICATED");
+  });
+
+  it("logowanie w przeglądarce przekierowuje do Core z PKCE i oboma API", async () => {
+    const response = await signInRoute.GET(new Request("http://aven-mail.localhost:3000/api/auth/sign-in?returnTo=/"));
+    expect(response.status).toBe(302);
+    const target = new URL(response.headers.get("location") ?? "");
+    expect(`${target.origin}${target.pathname}`).toBe(`${CORE}/api/auth/oauth2/authorize`);
+    expect(target.searchParams.get("client_id")).toBe("avenmail-web");
+    expect(target.searchParams.get("redirect_uri")).toBe("http://aven-mail.localhost:3000/api/auth/callback");
+    expect(target.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(target.searchParams.getAll("resource")).toEqual([API, "http://localhost:3200"]);
+    expect(response.headers.get("set-cookie")).toMatch(/^monorise-oauth=.*HttpOnly; SameSite=Lax/);
   });
 
   it("odrzuca zmianę z ciasteczkiem spoza strony (CSRF)", async () => {
     const { status, body } = await call(accounts.POST, "/accounts", {
       method: "POST",
       body: {},
-      headers: { cookie: "aven_session=x", origin: "https://zla-strona.example" },
+      headers: { cookie: "monorise-session=x", origin: "https://zla-strona.example" },
     });
     expect(status).toBe(403);
     expect(body.error.code).toBe("PERMISSION_DENIED");
@@ -80,7 +98,7 @@ describe("API: sesja i błędy", () => {
     const { token } = await signIn();
     const { status, body } = await call(accounts.POST, "/accounts", {
       method: "POST",
-      token: token!,
+      token,
       body: { email: "to-nie-adres", password: "" },
     });
     expect(status).toBe(422);
@@ -88,10 +106,13 @@ describe("API: sesja i błędy", () => {
     expect(body.error.details.map((d: { field: string }) => d.field)).toContain("email");
   });
 
-  it("nowy użytkownik nie ma skrzynek", async () => {
+  it("nowa osoba nie ma skrzynek, a zły identyfikator skrzynki to NOT_FOUND", async () => {
     const { token } = await signIn();
-    const list = await call(accounts.GET, "/accounts", { token: token! });
+    const list = await call(accounts.GET, "/accounts", { token });
     expect(list.body.data).toEqual([]);
+    const missing = await call(folders.GET, "/accounts/nie-uuid/folders", { token }, { id: "nie-uuid" });
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe("NOT_FOUND");
   });
 });
 
@@ -103,7 +124,7 @@ describe.skipIf(!host)("API z prawdziwym serwerem poczty (GreenMail)", () => {
     const email = `marek-${randomUUID().slice(0, 6)}@acme.test`;
     const created = await call(accounts.POST, "/accounts", {
       method: "POST",
-      token: token!,
+      token,
       body: {
         email,
         displayName: "Marek Nowak",
@@ -122,7 +143,7 @@ describe.skipIf(!host)("API z prawdziwym serwerem poczty (GreenMail)", () => {
       `/accounts/${id}/send`,
       {
         method: "POST",
-        token: token!,
+        token,
         body: { to: [{ name: null, address: email }], subject, text: "Szkolenie w poniedziałek, start w środę." },
       },
       { id },
@@ -131,19 +152,19 @@ describe.skipIf(!host)("API z prawdziwym serwerem poczty (GreenMail)", () => {
 
     let uid = 0;
     for (let i = 0; i < 20 && !uid; i++) {
-      const page = await call(messages.GET, `/accounts/${id}/messages?folder=INBOX`, { token: token! }, { id });
+      const page = await call(messages.GET, `/accounts/${id}/messages?folder=INBOX`, { token }, { id });
       uid = page.body.data.messages.find((m: { subject: string }) => m.subject === subject)?.uid ?? 0;
       if (!uid) await new Promise((resolve) => setTimeout(resolve, 250));
     }
     expect(uid).toBeGreaterThan(0);
 
-    const list = await call(folders.GET, `/accounts/${id}/folders`, { token: token! }, { id });
+    const list = await call(folders.GET, `/accounts/${id}/folders`, { token }, { id });
     expect(list.body.data[0].role).toBe("inbox");
 
     const opened = await call(
       one.GET,
       `/accounts/${id}/messages/${uid}?folder=INBOX`,
-      { token: token! },
+      { token },
       { id, uid: String(uid) },
     );
     expect(opened.body.data.text).toContain("start w środę");
@@ -153,7 +174,7 @@ describe.skipIf(!host)("API z prawdziwym serwerem poczty (GreenMail)", () => {
       `/accounts/${id}/messages/${uid}?folder=INBOX`,
       {
         method: "PATCH",
-        token: token!,
+        token,
         body: { seen: true, flagged: true },
       },
       { id, uid: String(uid) },
@@ -165,18 +186,41 @@ describe.skipIf(!host)("API z prawdziwym serwerem poczty (GreenMail)", () => {
       `/accounts/${id}/messages/${uid}?folder=INBOX`,
       {
         method: "DELETE",
-        token: token!,
+        token,
       },
       { id, uid: String(uid) },
     );
     expect(removed.body.data.permanently).toBe(true);
   });
 
+  it("skrzynki Anny nie widzi ani nie usunie Bartek z jej firmy ani nikt z innej firmy", async () => {
+    const anna = await signIn();
+    const created = await call(accounts.POST, "/accounts", {
+      method: "POST",
+      token: anna.token,
+      body: {
+        email: `anna-${randomUUID().slice(0, 6)}@acme.test`,
+        password: "dowolne",
+        imap: { host, port: 3143, security: "none" },
+        smtp: { host, port: 3025, security: "none" },
+      },
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.data.id as string;
+    for (const other of [await signIn(), await signIn(randomUUID())]) {
+      expect((await call(accounts.GET, "/accounts", { token: other.token })).body.data).toEqual([]);
+      expect((await call(folders.GET, `/accounts/${id}/folders`, { token: other.token }, { id })).status).toBe(404);
+      const removed = await call(mailbox.DELETE, `/accounts/${id}`, { method: "DELETE", token: other.token }, { id });
+      expect(removed.status).toBe(404);
+    }
+    expect((await call(accounts.GET, "/accounts", { token: anna.token })).body.data).toHaveLength(1);
+  });
+
   it("zły port daje MAIL_CONNECTION_FAILED i nie zapisuje skrzynki", async () => {
     const { token } = await signIn();
     const result = await call(accounts.POST, "/accounts", {
       method: "POST",
-      token: token!,
+      token,
       body: {
         email: "ola@acme.test",
         password: "x",

@@ -77,14 +77,16 @@ export interface MailAppProps {
   platform: Platform;
   /** Aplikacje na komputer i telefon zapisują token logowania (przeglądarka ma ciasteczko). */
   onToken?: (token: string | null) => void;
+  /** Logowanie kontem Monorise w aplikacji na komputer (zob. MailContextValue.signIn). */
+  signIn?: () => Promise<string | null>;
 }
 
 /** Cała poczta: logowanie, skrzynki, foldery, lista, czytanie i pisanie. Wspólna dla przeglądarki i komputera. */
-export function MailApp({ client, platform, onToken }: MailAppProps) {
+export function MailApp({ client, platform, onToken, signIn }: MailAppProps) {
   const [queryClient] = useState(
     () => new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: true } } }),
   );
-  const context = useMemo(() => ({ client, platform }), [client, platform]);
+  const context = useMemo(() => ({ client, platform, signIn }), [client, platform, signIn]);
   return (
     <MailContext value={context}>
       <QueryClientProvider client={queryClient}>
@@ -136,7 +138,7 @@ function Session({ onToken }: { onToken?: (token: string | null) => void }) {
   }
   return (
     <Mailbox
-      userName={me.data.name}
+      userName={me.data.name ?? me.data.email ?? "Konto Monorise"}
       onSignOut={async () => {
         await client.session.signOut().catch(() => null);
         onToken?.(null);

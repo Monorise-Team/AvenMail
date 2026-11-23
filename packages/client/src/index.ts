@@ -6,7 +6,6 @@ import {
   API_PREFIX,
   type ApiErrorBody,
   type ApiResponse,
-  type DevSignInRequest,
   type ErrorCode,
   type FlagsRequest,
   type Folder,
@@ -17,7 +16,6 @@ import {
   type MoveRequest,
   type SendRequest,
   type SendResult,
-  type Session,
   type User,
 } from "@aven/contracts";
 
@@ -79,9 +77,17 @@ export function createClient({ baseUrl = "", getToken, fetch: fetchImpl = fetch 
   return {
     session: {
       me: () => request<User>("GET", "/me"),
-      /** Tylko lokalnie, dopóki nie ma logowania przez Core. */
-      devSignIn: (input: DevSignInRequest & { app?: boolean }) => request<Session>("POST", "/session", input),
-      signOut: () => request<null>("DELETE", "/session"),
+      /**
+       * Wylogowanie w przeglądarce (BFF): serwer kończy sesję i unieważnia token w Core. Odpowiedź to
+       * przekierowanie, którego nie śledzimy; potem wystarczy ponownie zapytać o `me`.
+       */
+      signOut: async () => {
+        await fetchImpl(`${baseUrl}/api/auth/sign-out`, {
+          method: "POST",
+          credentials: "same-origin",
+          redirect: "manual",
+        });
+      },
     },
     accounts: {
       list: () => request<MailAccount[]>("GET", "/accounts"),
@@ -115,6 +121,5 @@ export type {
   Message,
   MessagePage,
   MessageSummary,
-  Session,
   User,
 } from "@aven/contracts";

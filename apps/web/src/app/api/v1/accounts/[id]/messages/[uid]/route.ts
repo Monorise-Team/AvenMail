@@ -18,19 +18,19 @@ const target = (url: URL, params: Params) => Target.parse({ uid: params.uid, fol
 
 export const GET = route<Params>(async ({ request, params }) => {
   const user = await requireUser(request);
-  return getMessage(await mailboxConfig(user.id, params.id), policy(), target(request.nextUrl, params));
+  return getMessage(await mailboxConfig(user, params.id), policy(), target(request.nextUrl, params));
 });
 
 /** Przeczytana albo nie, z gwiazdką albo bez: { "seen": true } */
 export const PATCH = route<Params>(async ({ request, params }) => {
   const user = await requireUser(request);
   const flags = FlagsRequest.parse(await readJson(request));
-  await setFlags(await mailboxConfig(user.id, params.id), policy(), { ...target(request.nextUrl, params), ...flags });
+  await setFlags(await mailboxConfig(user, params.id), policy(), { ...target(request.nextUrl, params), ...flags });
   return null;
 });
 
 /** Do kosza, a z kosza na stałe. */
 export const DELETE = route<Params>(async ({ request, params }) => {
   const user = await requireUser(request);
-  return deleteMessage(await mailboxConfig(user.id, params.id), policy(), target(request.nextUrl, params));
+  return deleteMessage(await mailboxConfig(user, params.id), policy(), target(request.nextUrl, params));
 });

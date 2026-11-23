@@ -8,6 +8,8 @@ minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
   - "@monorise-team/*"
 
-# Skrypty instalacyjne tylko dla zaufanych paczek (esbuild pobiera swój program dla systemu).
+# Skrypty instalacyjne tylko dla zaufanych paczek (esbuild i Prisma pobierają swoje programy dla systemu).
 allowBuilds:
   esbuild: true
+  prisma: true
+  "@prisma/engines": true

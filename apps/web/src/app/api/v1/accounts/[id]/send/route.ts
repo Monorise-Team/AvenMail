@@ -14,7 +14,7 @@ export const POST = route<{ id: string }>(async ({ request, params }) => {
   const user = await requireUser(request);
   rateLimit(`send:${user.id}`, 60, 60 * 60_000);
   const message = SendRequest.parse(await readJson(request));
-  const mailbox = await mailboxConfig(user.id, params.id);
+  const mailbox = await mailboxConfig(user, params.id);
   const { messageId, raw } = await sendMessage(mailbox, policy(), message);
   const savedToSent = SAVES_SENT_ITSELF.some((pattern) => pattern.test(mailbox.smtp.host))
     ? true

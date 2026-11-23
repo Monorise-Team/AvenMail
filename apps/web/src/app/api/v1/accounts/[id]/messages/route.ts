@@ -10,5 +10,5 @@ export const dynamic = "force-dynamic";
 export const GET = route<{ id: string }>(async ({ request, params }) => {
   const user = await requireUser(request);
   const query = PageQuery.parse(Object.fromEntries(request.nextUrl.searchParams));
-  return listMessages(await mailboxConfig(user.id, params.id), policy(), query);
+  return listMessages(await mailboxConfig(user, params.id), policy(), query);
 });

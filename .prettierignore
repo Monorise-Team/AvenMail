@@ -9,6 +9,7 @@ CHANGELOG.md
 LICENSE
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
-apps/web/drizzle/meta/
+packages/db/src/generated/
+packages/db/prisma/migrations/
 .github/ISSUE_TEMPLATE/
 .github/pull_request_template.md

@@ -13,6 +13,6 @@ export const POST = route<{ id: string; uid: string }>(async ({ request, params 
   const user = await requireUser(request);
   const { to } = MoveRequest.parse(await readJson(request));
   const { uid, folder } = Target.parse({ uid: params.uid, folder: request.nextUrl.searchParams.get("folder") });
-  await moveMessage(await mailboxConfig(user.id, params.id), policy(), { folder, uid, to });
+  await moveMessage(await mailboxConfig(user, params.id), policy(), { folder, uid, to });
   return null;
 });

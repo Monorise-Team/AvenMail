@@ -1,6 +1,6 @@
 import { route } from "@/server/api";
-import { requireUser } from "@/server/auth";
+import { currentUser } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
-export const GET = route(async ({ request }) => requireUser(request));
+export const GET = route(async ({ request }) => currentUser(request));

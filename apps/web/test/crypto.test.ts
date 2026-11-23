@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decryptSecret, encryptSecret, hashToken } from "@/server/crypto";
-import { uuidv7 } from "@/server/ids";
+import { uuidv7 } from "@aven/db";
 
 describe("szyfrowanie haseł do skrzynek", () => {
   it("odszyfrowuje tylko z tym samym kontekstem", () => {
