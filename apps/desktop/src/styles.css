@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@import "@monorise-team/ui/styles.css";
+
+/* Ekrany poczty z paczki @aven/mail-ui (wspólne z przeglądarką) */
+@source "../../../packages/mail-ui/src";

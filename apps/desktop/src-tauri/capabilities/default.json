@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Główne okno AvenMail: tylko podstawowe uprawnienia okna, bez dostępu do plików i powłoki",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
