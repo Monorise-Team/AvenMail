@@ -1,7 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Główne okno AvenMail: tylko podstawowe uprawnienia okna, bez dostępu do plików i powłoki",
+  "description": "Główne okno AvenMail: podstawowe uprawnienia okna, a do logowania otwieranie ekranu logowania MonoriseCore w przeglądarce systemowej i zapytania do Core. Bez dostępu do plików i powłoki.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "http://localhost:3100/*" }, { "url": "https://auth.monorise.studio/*" }]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "http://localhost:3100/*" }, { "url": "https://auth.monorise.studio/*" }]
+    }
+  ]
 }

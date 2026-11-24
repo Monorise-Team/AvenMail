@@ -10,9 +10,11 @@ export interface MailContextValue {
   platform: Platform;
   /**
    * Logowanie kontem Monorise poza przeglądarką (aplikacja na komputer): przeglądarka systemowa i powrót
-   * do aplikacji, wynik to token. W przeglądarce go nie ma, bo logowanie prowadzi serwer (BFF).
+   * do aplikacji, tokeny w systemowym sejfie. W przeglądarce go nie ma, bo logowanie prowadzi serwer (BFF).
    */
-  signIn?: () => Promise<string | null>;
+  signIn?: () => Promise<void>;
+  /** Wylogowanie poza przeglądarką: czyści sejf i unieważnia token w Core. */
+  signOut?: () => Promise<void>;
 }
 
 export const MailContext = createContext<MailContextValue | null>(null);

@@ -26,7 +26,12 @@ const config: ExpoConfig = {
     versionCode: build,
   },
   extra: {
+    /** Adres serwera AvenMail, z którym łączy się telefon (symulator iOS: 127.0.0.1). */
     apiUrl: process.env.EXPO_PUBLIC_AVEN_API ?? "http://127.0.0.1:3000",
+    /** Identyfikator API AvenMail w Core (odbiorca tokenów); na produkcji równy adresowi API. */
+    apiResource: process.env.EXPO_PUBLIC_AVEN_API_RESOURCE ?? "http://aven.localhost:3000",
+    /** Serwer logowania MonoriseCore. */
+    coreAuthUrl: process.env.EXPO_PUBLIC_CORE_AUTH_URL ?? "http://localhost:3100",
   },
 };
 

@@ -1,10 +1,19 @@
-import { ApiError, createClient, type Folder, type MailAccount, type Message, type MessageSummary } from "@aven/client";
+import {
+  ApiError,
+  createAppSession,
+  createClient,
+  type Folder,
+  type MailAccount,
+  type Message,
+  type MessageSummary,
+} from "@aven/client";
 import Constants from "expo-constants";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { readToken, writeToken } from "./session";
+import { mobileSignIn } from "./auth";
+import { secureStore } from "./session";
 import { colors, gap, radius } from "./theme";
 
 const apiUrl = (Constants.expoConfig?.extra?.apiUrl as string | undefined) ?? "http://127.0.0.1:3000";
@@ -34,30 +43,27 @@ const message = (error: unknown) =>
  * co przeglądarka i komputer; własne ekrany na wspólnych tokenach wyglądu (ADR-0089).
  */
 export function App() {
-  const [token, setToken] = useState<string | null | undefined>(undefined);
-  const client = useMemo(() => createClient({ baseUrl: apiUrl, getToken: () => token ?? null }), [token]);
+  const session = useMemo(() => createAppSession(mobileSignIn, secureStore), []);
+  const client = useMemo(() => createClient({ baseUrl: apiUrl, getToken: () => session.accessToken() }), [session]);
+  const [signedIn, setSignedIn] = useState<boolean | undefined>(undefined);
 
   useEffect(() => {
-    void readToken().then((saved) => setToken(saved));
-  }, []);
-
-  const signIn = useCallback(async (next: string | null) => {
-    await writeToken(next);
-    setToken(next);
-  }, []);
+    void session.isSignedIn().then(setSignedIn);
+    return session.subscribe(setSignedIn);
+  }, [session]);
 
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
       <SafeAreaView style={styles.root}>
-        {token === undefined ? (
+        {signedIn === undefined ? (
           <Centered>
             <ActivityIndicator color={colors.accent} />
           </Centered>
-        ) : token ? (
-          <Mailbox client={client} onSignOut={() => signIn(null)} />
+        ) : signedIn ? (
+          <Mailbox client={client} onSignOut={() => void session.signOut()} />
         ) : (
-          <SignIn />
+          <SignIn onSignIn={session.signIn} />
         )}
       </SafeAreaView>
     </SafeAreaProvider>
@@ -68,19 +74,35 @@ function Centered({ children }: { children: ReactNode }) {
   return <View style={styles.centered}>{children}</View>;
 }
 
-/**
- * Logowanie kontem Monorise przez przeglądarkę systemową powstaje w osobnym zgłoszeniu (#8). Do tego czasu
- * aplikacja na telefon nie loguje się wcale: logowania deweloperskiego już nie ma.
- */
-function SignIn() {
+/** Logowanie kontem Monorise: ekran logowania Core w przeglądarce systemowej i powrót do aplikacji. */
+function SignIn({ onSignIn }: { onSignIn: () => Promise<void> }) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function start() {
+    setBusy(true);
+    setError(null);
+    try {
+      await onSignIn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Nie udało się zalogować.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <View style={[styles.card, styles.signIn]}>
       <Text style={styles.title}>Zaloguj się do AvenMail</Text>
-      <Text style={styles.muted}>
-        Logujesz się kontem Monorise. Logowanie w aplikacji na telefon pojawi się w kolejnej wersji.
-      </Text>
-      <Pressable style={[styles.primary, styles.disabled]} disabled accessibilityRole="button">
-        <Text style={styles.primaryText}>Zaloguj się kontem Monorise</Text>
+      <Text style={styles.muted}>Logujesz się kontem Monorise, tym samym co w innych aplikacjach Monorise.</Text>
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+      <Pressable
+        style={[styles.primary, busy ? styles.disabled : null]}
+        onPress={() => void start()}
+        disabled={busy}
+        accessibilityRole="button"
+      >
+        <Text style={styles.primaryText}>{busy ? "Logowanie…" : "Zaloguj się kontem Monorise"}</Text>
       </Pressable>
     </View>
   );
