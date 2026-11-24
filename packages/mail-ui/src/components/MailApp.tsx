@@ -75,31 +75,31 @@ const PAGE_SIZE = 50;
 export interface MailAppProps {
   client: AvenClient;
   platform: Platform;
-  /** Aplikacje na komputer i telefon zapisują token logowania (przeglądarka ma ciasteczko). */
-  onToken?: (token: string | null) => void;
   /** Logowanie kontem Monorise w aplikacji na komputer (zob. MailContextValue.signIn). */
-  signIn?: () => Promise<string | null>;
+  signIn?: () => Promise<void>;
+  /** Wylogowanie w aplikacji na komputer (zob. MailContextValue.signOut). */
+  signOut?: () => Promise<void>;
 }
 
 /** Cała poczta: logowanie, skrzynki, foldery, lista, czytanie i pisanie. Wspólna dla przeglądarki i komputera. */
-export function MailApp({ client, platform, onToken, signIn }: MailAppProps) {
+export function MailApp({ client, platform, signIn, signOut }: MailAppProps) {
   const [queryClient] = useState(
     () => new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: true } } }),
   );
-  const context = useMemo(() => ({ client, platform, signIn }), [client, platform, signIn]);
+  const context = useMemo(() => ({ client, platform, signIn, signOut }), [client, platform, signIn, signOut]);
   return (
     <MailContext value={context}>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <Session onToken={onToken} />
+          <Session />
         </TooltipProvider>
       </QueryClientProvider>
     </MailContext>
   );
 }
 
-function Session({ onToken }: { onToken?: (token: string | null) => void }) {
-  const { client } = useMailClient();
+function Session() {
+  const { client, signOut } = useMailClient();
   const queryClient = useQueryClient();
   const me = useQuery({ queryKey: ["me"], queryFn: () => client.session.me(), retry: false });
 
@@ -114,8 +114,7 @@ function Session({ onToken }: { onToken?: (token: string | null) => void }) {
     if (me.error instanceof ApiError && me.error.status === 401) {
       return (
         <SignIn
-          onSignedIn={(token) => {
-            onToken?.(token);
+          onSignedIn={() => {
             void queryClient.invalidateQueries();
           }}
         />
@@ -140,8 +139,8 @@ function Session({ onToken }: { onToken?: (token: string | null) => void }) {
     <Mailbox
       userName={me.data.name ?? me.data.email ?? "Konto Monorise"}
       onSignOut={async () => {
-        await client.session.signOut().catch(() => null);
-        onToken?.(null);
+        if (signOut) await signOut();
+        else await client.session.signOut().catch(() => null);
         queryClient.clear();
         await me.refetch();
       }}

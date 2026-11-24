@@ -42,7 +42,7 @@ pnpm dev:desktop        # aplikacja na komputer (łączy się z http://aven.loca
 pnpm dev:mobile         # Expo; adres serwera: EXPO_PUBLIC_AVEN_API (symulator iOS: http://127.0.0.1:3000)
 ```
 
-Logowanie kontem Monorise w aplikacjach na komputer i telefon dopiero powstaje (zgłoszenie #8); do tego czasu te aplikacje się nie logują.
+Logowanie w aplikacjach: przycisk „Zaloguj się kontem Monorise” otwiera ekran logowania Core w przeglądarce systemowej. Aplikacja na komputer odbiera powrót na `http://127.0.0.1:<port>/oauth/callback` (RFC 8252), aplikacja na telefon przez `avenmail://` (w Expo Go przez `exp://127.0.0.1:8081`, dlatego Metro startuje z `--localhost`). Tokeny trzymają w systemowym sejfie: Pęk kluczy macOS, Credential Manager, Secret Service, Keychain i Keystore na telefonie. Adresy powrotu rejestruje w lokalnym Core `pnpm oauth:seed`.
 
 Baza: PostgreSQL z Prismą (ADR-0096), lokalnie w Dockerze. Serwer łączy się rolą `aven_mail_app`, którą obowiązuje RLS: skrzynkę widzi tylko jej właściciel w swojej firmie (ADR-0037). Zmiana schematu: `packages/db/prisma/schema.prisma`, potem w `packages/db` `pnpm exec prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script` (różnica między lokalną bazą po `pnpm db:migrate` a schematem) do nowego katalogu migracji, z RLS dla nowych tabel z danymi osób i firm.
 

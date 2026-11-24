@@ -16,7 +16,7 @@ const AUTH_ERRORS: Record<string, string> = {
  * Logowanie kontem Monorise (MonoriseCore, ADR-0095). W przeglądarce prowadzi je serwer AvenMail: ekran
  * logowania Core i powrót na tę samą stronę. W aplikacji na komputer robi to przeglądarka systemowa.
  */
-export function SignIn({ onSignedIn }: { onSignedIn: (token: string | null) => void }) {
+export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
   const { platform, signIn } = useMailClient();
   const [error, setError] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -39,7 +39,8 @@ export function SignIn({ onSignedIn }: { onSignedIn: (token: string | null) => v
     if (!signIn) return;
     setBusy(true);
     try {
-      onSignedIn(await signIn());
+      await signIn();
+      onSignedIn();
     } catch (e) {
       setError(errorMessage(e));
     } finally {
