@@ -14,7 +14,7 @@ const MESSAGES: Record<string, string> = {
     "Ten serwer albo port nie jest dozwolony. Użyj publicznego serwera poczty i portów 993 (IMAP) oraz 465 albo 587 (SMTP).",
   MAIL_TIMEOUT: "Serwer poczty nie odpowiedział na czas. Spróbuj ponownie.",
   MAIL_REJECTED: "Serwer poczty odrzucił wiadomość.",
-  INTERNAL: "Coś poszło nie tak po naszej stronie. Spróbuj ponownie.",
+  INTERNAL_ERROR: "Coś poszło nie tak po naszej stronie. Spróbuj ponownie.",
 };
 
 export function errorMessage(error: unknown): string {
@@ -23,5 +23,5 @@ export function errorMessage(error: unknown): string {
     if (error.code === "VALIDATION_FAILED" && field) return `${MESSAGES.VALIDATION_FAILED} ${field.message}`;
     return MESSAGES[error.code] ?? error.message;
   }
-  return MESSAGES.INTERNAL!;
+  return MESSAGES.INTERNAL_ERROR!;
 }

@@ -19,7 +19,7 @@ export const ERROR_CODES = [
   "MAIL_HOST_NOT_ALLOWED",
   "MAIL_TIMEOUT",
   "MAIL_REJECTED",
-  "INTERNAL",
+  "INTERNAL_ERROR",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   detectProvider,
+  ERROR_CODES,
   guessServers,
   MailAccountInput,
   PageQuery,
@@ -51,5 +52,10 @@ describe("schematy", () => {
       bcc: [],
       subject: "",
     });
+  });
+
+  it("używa kodu INTERNAL_ERROR dla błędów serwera", () => {
+    expect(ERROR_CODES).toContain("INTERNAL_ERROR");
+    expect(ERROR_CODES).not.toContain("INTERNAL");
   });
 });
