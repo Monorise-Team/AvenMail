@@ -50,4 +50,26 @@ describe("klient API", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ code: "MAIL_AUTH_FAILED", status: 422 });
   });
+
+  it("zwraca INTERNAL_ERROR przy błędzie sieci lub nie-JSON z serwera", async () => {
+    const networkClient = createClient({
+      fetch: (async () => {
+        throw new TypeError("fetch failed");
+      }) as unknown as typeof fetch,
+    });
+    const networkError = await networkClient.accounts.list().catch((e: unknown) => e);
+    expect(networkError).toBeInstanceOf(ApiError);
+    expect(networkError).toMatchObject({ code: "INTERNAL_ERROR", status: 0 });
+
+    const htmlClient = createClient({
+      fetch: (async () =>
+        new Response("Bad Gateway", {
+          status: 502,
+          headers: { "Content-Type": "text/plain" },
+        })) as unknown as typeof fetch,
+    });
+    const serverError = await htmlClient.accounts.list().catch((e: unknown) => e);
+    expect(serverError).toBeInstanceOf(ApiError);
+    expect(serverError).toMatchObject({ code: "INTERNAL_ERROR", status: 502 });
+  });
 });

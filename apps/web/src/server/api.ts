@@ -54,7 +54,7 @@ function toFailure(error: unknown): ApiFailure {
     );
   }
   if (error instanceof MailError) return new ApiFailure(MAIL_STATUS[error.code] ?? 502, error.code, error.message);
-  return new ApiFailure(500, "INTERNAL", "Wewnętrzny błąd serwera");
+  return new ApiFailure(500, "INTERNAL_ERROR", "Wewnętrzny błąd serwera");
 }
 
 export interface CookieJar {

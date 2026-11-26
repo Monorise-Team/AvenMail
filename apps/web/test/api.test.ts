@@ -14,6 +14,7 @@ import * as one from "@/app/api/v1/accounts/[id]/messages/[uid]/route";
 import * as send from "@/app/api/v1/accounts/[id]/send/route";
 import * as me from "@/app/api/v1/me/route";
 import * as signInRoute from "@/app/api/auth/sign-in/route";
+import { route } from "@/server/api";
 import { API, CORE, coreToken } from "./setup";
 
 const BASE = "http://aven.localhost:3000/api/v1";
@@ -104,6 +105,16 @@ describe("API: sesja i błędy", () => {
     expect(status).toBe(422);
     expect(body.error.code).toBe("VALIDATION_FAILED");
     expect(body.error.details.map((d: { field: string }) => d.field)).toContain("email");
+  });
+
+  it("zwraca INTERNAL_ERROR (500) przy nieoczekiwanym błędzie trasy", async () => {
+    const failing = route(async () => {
+      throw new Error("nieoczekiwany błąd");
+    });
+    const { status, body } = await call(failing, "/boom");
+    expect(status).toBe(500);
+    expect(body.data).toBeNull();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
   });
 
   it("nowa osoba nie ma skrzynek, a zły identyfikator skrzynki to NOT_FOUND", async () => {
