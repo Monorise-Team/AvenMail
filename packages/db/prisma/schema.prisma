@@ -1,9 +1,11 @@
-// Baza aven_mail (ADR-0096): tylko konfiguracja skrzynek i sesje przeglądarki. Treści maili tu nie ma (ADR-0088).
+// Baza aven_mail (ADR-0096): konfiguracja skrzynek, sesje przeglądarki i tabele techniczne kanału zdarzeń Core.
+// Treści maili tu nie ma (ADR-0088).
 // Osoba i firma pochodzą z MonoriseCore (sub i org_id z tokenu), więc AvenMail nie ma własnych kont.
 // Schemat "auth": sesje przeglądarki (BFF, @monorise-team/auth). Szukamy ich po skrócie identyfikatora z ciasteczka,
 // zanim wiadomo, czyja to sesja, więc są bez RLS; tokeny w środku są zaszyfrowane.
-// Schemat "public": dane osób z firm, z RLS po firmie i osobie (migracja). Aplikacja łączy się rolą aven_mail_app
-// bez uprawnień właściciela tabel (ADR-0037).
+// Schemat "public": dane osób z firm (mail_accounts) z RLS po firmie i osobie (migracja) oraz tabele techniczne
+// kanału zdarzeń Core bez danych firmowych (event_feed_cursors, processed_events, ADR-0100). Aplikacja łączy się
+// rolą aven_mail_app bez uprawnień właściciela tabel (ADR-0037).
 
 generator client {
   provider            = "prisma-client"
@@ -68,5 +70,29 @@ model MailAccount {
   @@unique([userId, email])
   @@index([organizationId])
   @@map("mail_accounts")
+  @@schema("public")
+}
+
+/// Kursor ostatnio przetworzonego zdarzenia z kanału HTTP produktu (bez danych firmowych, bez RLS, ADR-0100).
+model EventFeedCursor {
+  /// Nazwa kanału zdarzeń, np. "core".
+  id        String   @id
+  /// Numer ostatnio przetworzonego zdarzenia (liczba dziesiętna jako napis).
+  sequence  String
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("event_feed_cursors")
+  @@schema("public")
+}
+
+/// Zapis przetworzonych zdarzeń do deduplikacji po stronie odbiorcy (bez danych firmowych, bez RLS, ADR-0100).
+model ProcessedEvent {
+  consumer    String
+  eventId     String   @map("event_id") @db.Uuid
+  processedAt DateTime @map("processed_at") @db.Timestamptz(3)
+
+  @@id([consumer, eventId])
+  @@index([processedAt])
+  @@map("processed_events")
   @@schema("public")
 }

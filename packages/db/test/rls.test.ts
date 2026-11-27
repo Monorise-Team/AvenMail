@@ -31,10 +31,29 @@ afterAll(async () => {
     await withUser(db, actor, (tx) => tx.mailAccount.deleteMany({}));
   }
   await db.session.deleteMany({ where: { organizationId: { in: [acme, globex] } } });
+  await db.$executeRaw`DELETE FROM "public"."processed_events" WHERE "consumer" = 'avenmail-rls-test'`;
+  await db.$executeRaw`DELETE FROM "public"."event_feed_cursors" WHERE "id" = 'core-rls-test'`;
   await db.$disconnect();
 });
 
 describe("RLS: skrzynki widzi tylko ich właściciel w swojej firmie", () => {
+  it("rola aven_mail_app nie jest superużytkownikiem i nie ma BYPASSRLS", async () => {
+    const rows = await db.$queryRaw<{ rolsuper: boolean; rolbypassrls: boolean }[]>`
+      SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user
+    `;
+    expect(rows).toEqual([{ rolsuper: false, rolbypassrls: false }]);
+  });
+
+  it("tabela mail_accounts ma włączone i wymuszone RLS (ENABLE + FORCE ROW LEVEL SECURITY)", async () => {
+    const rows = await db.$queryRaw<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }[]>`
+      SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relname = 'mail_accounts'
+    `;
+    expect(rows).toEqual([{ relname: "mail_accounts", relrowsecurity: true, relforcerowsecurity: true }]);
+  });
+
   it("Anna widzi swoją skrzynkę, Bartek z tej samej firmy i Celina z innej nie", async () => {
     const own = await withUser(db, anna, (tx) => tx.mailAccount.create({ data: mailbox(anna, "anna@acme.test") }));
     expect(await withUser(db, anna, (tx) => tx.mailAccount.count())).toBe(1);
@@ -63,13 +82,35 @@ describe("RLS: skrzynki widzi tylko ich właściciel w swojej firmie", () => {
     expect(removed.count).toBe(0);
   });
 
-  it("sesje przeglądarki są dostępne po identyfikatorze bez ustawionej firmy", async () => {
+  it("sesje przeglądarki i tabele kanału zdarzeń są dostępne bez ustawionej firmy", async () => {
     const id = `skrot-${uuidv7()}`;
     await db.session.create({
       data: { id, userId: anna.userId, organizationId: acme, expiresAt: new Date(Date.now() + 60_000), data: "x" },
     });
     expect((await db.session.findUnique({ where: { id } }))?.userId).toBe(anna.userId);
     await db.session.delete({ where: { id } });
+
+    await db.$executeRaw`
+      INSERT INTO "public"."event_feed_cursors" ("id", "sequence", "updated_at")
+      VALUES ('core-rls-test', '42', CURRENT_TIMESTAMP)
+      ON CONFLICT ("id") DO UPDATE SET "sequence" = EXCLUDED."sequence", "updated_at" = CURRENT_TIMESTAMP
+    `;
+    const cursors = await db.$queryRaw<{ sequence: string }[]>`
+      SELECT "sequence" FROM "public"."event_feed_cursors" WHERE "id" = 'core-rls-test'
+    `;
+    expect(cursors).toEqual([{ sequence: "42" }]);
+
+    const eventId = uuidv7();
+    await db.$executeRaw`
+      INSERT INTO "public"."processed_events" ("consumer", "event_id", "processed_at")
+      VALUES ('avenmail-rls-test', ${eventId}::uuid, CURRENT_TIMESTAMP)
+    `;
+    const processed = await db.$queryRaw<{ eventId: string }[]>`
+      SELECT "event_id"::text AS "eventId"
+      FROM "public"."processed_events"
+      WHERE "consumer" = 'avenmail-rls-test' AND "event_id" = ${eventId}::uuid
+    `;
+    expect(processed).toEqual([{ eventId }]);
   });
 
   it("rola aplikacji nie widzi historii migracji", async () => {

@@ -52,7 +52,9 @@ export const AnyNull = runtime.AnyNull
 
 export const ModelName = {
   Session: 'Session',
-  MailAccount: 'MailAccount'
+  MailAccount: 'MailAccount',
+  EventFeedCursor: 'EventFeedCursor',
+  ProcessedEvent: 'ProcessedEvent'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -103,6 +105,24 @@ export const MailAccountScalarFieldEnum = {
 } as const
 
 export type MailAccountScalarFieldEnum = (typeof MailAccountScalarFieldEnum)[keyof typeof MailAccountScalarFieldEnum]
+
+
+export const EventFeedCursorScalarFieldEnum = {
+  id: 'id',
+  sequence: 'sequence',
+  updatedAt: 'updatedAt'
+} as const
+
+export type EventFeedCursorScalarFieldEnum = (typeof EventFeedCursorScalarFieldEnum)[keyof typeof EventFeedCursorScalarFieldEnum]
+
+
+export const ProcessedEventScalarFieldEnum = {
+  consumer: 'consumer',
+  eventId: 'eventId',
+  processedAt: 'processedAt'
+} as const
+
+export type ProcessedEventScalarFieldEnum = (typeof ProcessedEventScalarFieldEnum)[keyof typeof ProcessedEventScalarFieldEnum]
 
 
 export const SortOrder = {
