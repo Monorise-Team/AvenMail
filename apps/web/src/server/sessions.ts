@@ -32,3 +32,8 @@ export const sessionStore: SessionStore = {
     await getDb().session.deleteMany({ where: { id } });
   },
 };
+
+/** Usuwa wszystkie sesje przeglądarki wskazanego konta (np. po dezaktywacji w MonoriseCore). */
+export async function deleteSessionsForAccount(accountId: string): Promise<void> {
+  await getDb().session.deleteMany({ where: { userId: accountId } });
+}

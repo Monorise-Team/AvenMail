@@ -65,22 +65,11 @@ Pod tym blokiem w `AGENTS.md` trzymaj tylko zasady repozytorium i linki; szczeg�
 
 <!-- END:monorise-shared -->
 
-Instrukcje dla agentów AI (i ludzi) pracujących w repozytorium AvenMail.
+Zasady specyficzne dla repozytorium AvenMail.
 
 ## Czym jest AvenMail
 
-Klient poczty Monorise i pierwszy produkt (ADR-0095). Jeden silnik poczty na serwerze dla przeglądarki, komputera i telefonu (ADR-0088). Logowanie kontem Monorise przez MonoriseCore (`@monorise-team/auth`), baza PostgreSQL z Prismą (ADR-0096). Przestrzeń robocza pnpm z Turborepo (ADR-0092). Decyzje są w repozytorium MonoriseDocumentation.
-
-| Gdzie                  | Co                                                                                                                            |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web`             | Next.js: `aven.` (strona, API `/api/v1`) i `aven-mail.` (poczta); rozpoznanie adresu w `src/proxy.ts`, serwer w `src/server/` |
-| `apps/desktop`         | Vite + React + Tauri 2; ekrany z `@aven/mail-ui`                                                                              |
-| `apps/mobile`          | Expo; własne ekrany, tokeny z `@monorise-team/tokens`, token w `expo-secure-store`                                            |
-| `packages/mail-engine` | IMAP (imapflow), SMTP (nodemailer), parsowanie (mailparser), ochrona przed SSRF                                               |
-| `packages/contracts`   | schematy zod i typy API, dostawcy poczty                                                                                      |
-| `packages/client`      | klient API (ciasteczko w przeglądarce, token w aplikacjach)                                                                   |
-| `packages/mail-ui`     | ekrany poczty dla przeglądarki i komputera                                                                                    |
-| `packages/db`          | baza `aven_mail`: schemat Prisma, migracje z RLS, `withUser`                                                                  |
+Klient poczty Monorise i pierwszy produkt (ADR-0095). Jeden silnik poczty na serwerze dla przeglądarki, komputera i telefonu (ADR-0088). Logowanie, firmy, dostęp do produktu, uprawnienia, kanał zdarzeń i powiadomienia e-mail pochodzą z MonoriseCore (`@monorise-team/auth`, `@monorise-team/sdk`, `@monorise-team/permissions`, `@monorise-team/events`), a baza danych działa na PostgreSQL z Prismą i RLS (ADR-0096). Przestrzeń robocza pnpm z Turborepo (ADR-0092). Decyzje są w repozytorium MonoriseDocumentation.
 
 ## Zasady kodu
 
@@ -88,24 +77,23 @@ Klient poczty Monorise i pierwszy produkt (ADR-0095). Jeden silnik poczty na ser
 2. **Hasła do skrzynek** tylko zaszyfrowane (`apps/web/src/server/crypto.ts`, kontekst = id skrzynki i konta Monorise); nigdy nie wracają z API.
 3. **Każde połączenie z serwerem poczty** przechodzi przez `resolveMailHost` (blokada sieci prywatnej i portów spoza IMAP/SMTP). Wyjątki tylko przez `AVEN_ALLOW_PRIVATE_MAIL_HOSTS=1` lokalnie i w testach.
 4. **HTML wiadomości** pokazujemy tylko przez `messageDocument` w ramce bez skryptów (DOMPurify + CSP); obrazy z internetu dopiero po zgodzie.
-5. **API** w formacie `{ data, meta, error }` ze stałymi kodami błędów (`packages/contracts`); każda trasa przez `route()` z `apps/web/src/server/api.ts` (CSRF dla ciasteczka, CORS dla aplikacji, kody błędów).
-6. **Wygląd** tylko z `@monorise-team/ui` i tokenów (ADR-0091); bez kolorów wpisanych na sztywno, poza stroną HTML wiadomości.
-7. **Logowanie tylko przez MonoriseCore** (`apps/web/src/server/auth.ts`, `@monorise-team/auth`): przeglądarka przez BFF z sesją w bazie i ciasteczkiem `HttpOnly`, aplikacje tokenem z Core. Aplikacje na komputer i telefon logują się przez przeglądarkę systemową z PKCE (`apps/desktop/src/auth.ts`, `apps/mobile/src/auth.ts`), tokeny trzymają tylko w systemowym sejfie, a odświeżanie idzie przez `createAppSession` z `@aven/client` (jedno naraz, bo Core unieważnia rodzinę tokenów przy ponownym użyciu). Osoba i firma zawsze z tokenu albo sesji (`requireUser`), nigdy z treści żądania (ADR-0037). AvenMail nie ma własnych kont.
-8. **Dane osób tylko przez `withUser`** z `@aven/db`: ustawia osobę i firmę w transakcji, a RLS w bazie odcina resztę. Każda nowa tabela z danymi osób albo firm dostaje w migracji RLS (`ENABLE` + `FORCE`) i test próby odczytu cudzych danych. Połączeń z serwerami poczty nie prowadzimy wewnątrz transakcji.
-9. **Jedna wersja**: po zmianie zależności `@monorise-team/*` używaj `pnpm shared:update`; `pnpm check:versions` musi przechodzić.
-10. Teksty interfejsu po polsku, bez półpauz i myślników jako separatorów zdań.
+5. **Osoba, pracownik i firma tylko z tokenu albo sesji** (`requireUser` w `apps/web/src/server/auth.ts`), nigdy z treści żądania ani adresu (ADR-0037). Przeglądarka działa przez BFF z sesją w bazie (`auth.sessions`) i ciasteczkiem `HttpOnly` (ADR-0098), aplikacje na komputer i telefon logują się przez przeglądarkę systemową z PKCE, trzymają tokeny w systemowym sejfie i odświeżają je przez `createAppSession` z `@aven/client`. AvenMail nie ma własnych kont.
+6. **Komunikacja z MonoriseCore tylko przez `@monorise-team/sdk`** (`apps/web/src/server/core.ts`), bez ręcznego `fetch` do Core API (wyjątek: rejestracja w `apps/web/src/server/core-registration.ts`). W testach używaj `createFakeCore`, `defineProductContractTests` i `checkTenantIsolation` z `@monorise-team/testing`.
+7. **Uprawnienia i gotowe role deklarowane w kodzie** w `packages/contracts/src/permissions.ts` (`definePermissions("avenmail", ...)` i `AVENMAIL_ROLE_TEMPLATES`), rejestrowane przez `pnpm permissions:register`. Sprawdzanie wyłącznie w `apps/web/src/server/permissions.ts` na migawce z Core (brak produktu daje `403 PRODUCT_ACCESS_REQUIRED`, brak uprawnienia `403 PERMISSION_DENIED`).
+8. **API** w formacie `{ data, meta, error }` ze stałymi kodami błędów (`@aven/contracts`); każda trasa przez `route()` z `apps/web/src/server/api.ts` (CSRF dla ciasteczka, CORS dla aplikacji, kody błędów) i opisana w `apps/web/src/server/routes.ts` (`pnpm openapi`, sprawdzane w `pnpm openapi:check`).
+9. **Dane osób i firm tylko przez `withUser`** z `@aven/db` i RLS. Każda nowa tabela z danymi osób albo firm dostaje w migracji `ENABLE` + `FORCE ROW LEVEL SECURITY` oraz test izolacji (`checkTenantIsolation`). Połączeń z serwerami poczty nie prowadzimy wewnątrz transakcji.
+10. **Wygląd** tylko z `@monorise-team/ui` i tokenów `@monorise-team/tokens` (ADR-0091); bez kolorów wpisanych na sztywno, poza stroną HTML wiadomości.
+11. **Jedna wersja**: po zmianie zależności `@monorise-team/*` używaj `pnpm shared:update`; `pnpm check:versions` musi przechodzić.
+12. **Teksty interfejsu** po polsku, bez półpauz i myślników jako separatorów zdań.
 
 ## Wyjątki i zasady tego repozytorium
 
-- `pnpm check` wymaga uruchomionej bazy (`pnpm db:up`) i GreenMail (`AVEN_TEST_IMAP_HOST=127.0.0.1`).
-- Zmiany w logowaniu, strukturze bazy i dostępie do skrzynek scalane są dopiero po zgodzie właściciela projektu.
+- `pnpm check` wymaga uruchomionej bazy (`pnpm db:up && pnpm db:migrate`) i GreenMail (`AVEN_TEST_IMAP_HOST=127.0.0.1`).
+- Zmiany w logowaniu, uprawnieniach, strukturze bazy i dostępie do skrzynek scalane są dopiero po zgodzie właściciela projektu.
 - Treść maili, hasła i dane ze skrzynek nigdy nie trafiają do zlecanych zadań.
 
-## Polecenia
+## Szczegóły
 
-```bash
-pnpm install && pnpm setup:env && pnpm db:up && pnpm db:migrate && pnpm mail:test-server
-pnpm dev                 # aven.localhost:3000 i aven-mail.localhost:3000 (logowanie: MonoriseCore na localhost:3100)
-AVEN_TEST_IMAP_HOST=127.0.0.1 pnpm check   # obowiązkowo przed pull requestem (wymaga pnpm db:up i GreenMail)
-AVEN_TEST_IMAP_HOST=127.0.0.1 pnpm test
-```
+- [Architektura, logowanie, uprawnienia, kanał zdarzeń i polecenia](docs/agents/architecture.md)
+- [Baza danych, migracje i RLS](docs/agents/database.md)
+- [API, OpenAPI i zestawy testów](docs/agents/api.md)

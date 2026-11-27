@@ -10,7 +10,10 @@
     "start": "next start --port 3000",
     "lint": "eslint --max-warnings=0 .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "openapi": "pnpm --filter @aven/contracts build && node scripts/generate-openapi.mjs",
+    "openapi:check": "pnpm --filter @aven/contracts build && node scripts/generate-openapi.mjs --check",
+    "permissions:register": "pnpm --filter @aven/contracts build && node scripts/register-permissions.mjs"
   },
   "dependencies": {
     "@aven/client": "workspace:*",
@@ -18,8 +21,11 @@
     "@aven/db": "workspace:*",
     "@aven/mail-engine": "workspace:*",
     "@aven/mail-ui": "workspace:*",
-    "@monorise-team/auth": "0.0.1-dev.2",
-    "@monorise-team/ui": "0.0.1-dev.2",
+    "@monorise-team/auth": "0.0.1-dev.27",
+    "@monorise-team/events": "0.0.1-dev.27",
+    "@monorise-team/permissions": "0.0.1-dev.27",
+    "@monorise-team/sdk": "0.0.1-dev.27",
+    "@monorise-team/ui": "0.0.1-dev.27",
     "jose": "^6.2.0",
     "lucide-react": "^1.76.0",
     "next": "^16.4.5",
@@ -29,7 +35,8 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@monorise-team/config": "0.0.1-dev.2",
+    "@monorise-team/config": "0.0.1-dev.27",
+    "@monorise-team/testing": "0.0.1-dev.27",
     "@tailwindcss/postcss": "^4.3.5",
     "@types/node": "^24.10.0",
     "@types/react": "^19.3.0",

@@ -27,3 +27,13 @@ export type Session = Prisma.SessionModel
  * Skrzynka pocztowa osoby: adresy serwerów i zaszyfrowane hasło (ADR-0088).
  */
 export type MailAccount = Prisma.MailAccountModel
+/**
+ * Model EventFeedCursor
+ * Kursor ostatnio przetworzonego zdarzenia z kanału HTTP produktu (bez danych firmowych, bez RLS, ADR-0100).
+ */
+export type EventFeedCursor = Prisma.EventFeedCursorModel
+/**
+ * Model ProcessedEvent
+ * Zapis przetworzonych zdarzeń do deduplikacji po stronie odbiorcy (bez danych firmowych, bez RLS, ADR-0100).
+ */
+export type ProcessedEvent = Prisma.ProcessedEventModel

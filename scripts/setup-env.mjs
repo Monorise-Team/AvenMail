@@ -2,7 +2,8 @@
 /**
  * Ustawienia do pracy lokalnej:
  * - apps/web/.env.local: klucz szyfrujący hasła do skrzynek, sekret sesji, baza (rola aplikacji), adresy
- *   MonoriseCore i sekret klienta avenmail-web z Core (z pliku, który zapisuje `pnpm oauth:seed` w MonoriseCore),
+ *   MonoriseCore, interwał kanału zdarzeń i sekret klienta avenmail-web z Core (z pliku, który zapisuje
+ *   `pnpm oauth:seed` w MonoriseCore),
  * - packages/db/.env: baza dla migracji (właściciel tabel).
  * Istniejących wartości nie zmienia: dopisuje tylko brakujące.
  */
@@ -13,9 +14,8 @@ import { join } from "node:path";
 const root = join(import.meta.dirname, "..");
 const coreSecretsFile =
   process.env.CORE_OAUTH_SECRETS_FILE ?? join(root, "../MonoriseCore/apps/auth/.data/oauth-clients.json");
-const coreSecret = existsSync(coreSecretsFile)
-  ? (JSON.parse(readFileSync(coreSecretsFile, "utf8"))["avenmail-web"] ?? "")
-  : "";
+const hasCoreSecretsFile = existsSync(coreSecretsFile);
+const coreSecret = hasCoreSecretsFile ? (JSON.parse(readFileSync(coreSecretsFile, "utf8"))["avenmail-web"] ?? "") : "";
 
 function ensure(file, header, values) {
   const path = join(root, file);
@@ -39,6 +39,7 @@ ensure("apps/web/.env.local", "# Tylko lokalnie. Nigdy nie commituj tego pliku."
   AVEN_ALLOW_PRIVATE_MAIL_HOSTS: "1",
   AVEN_MAIL_URL: "http://aven-mail.localhost:3000",
   AVEN_API_URL: "http://aven.localhost:3000",
+  AVEN_EVENT_FEED_INTERVAL_MS: "5000",
   DATABASE_URL: "postgresql://aven_mail_app:aven_mail_app@localhost:5434/aven_mail",
   CORE_AUTH_URL: "http://localhost:3100",
   CORE_API_URL: "http://localhost:3200",
@@ -48,7 +49,14 @@ ensure("apps/web/.env.local", "# Tylko lokalnie. Nigdy nie commituj tego pliku."
 ensure("packages/db/.env", "# Tylko lokalnie: właściciel tabel, do migracji.", {
   DATABASE_URL: "postgresql://aven_mail_owner:aven_mail_owner@localhost:5434/aven_mail",
 });
-if (!coreSecret) {
+if (!hasCoreSecretsFile) {
+  console.log(
+    `Nie znaleziono pliku sekretów OAuth Core: ${coreSecretsFile}\n` +
+      "Jeśli repozytorium (albo git worktree) nie leży obok MonoriseCore, wskaż plik przez CORE_OAUTH_SECRETS_FILE:\n" +
+      "  CORE_OAUTH_SECRETS_FILE=/sciezka/do/MonoriseCore/apps/auth/.data/oauth-clients.json pnpm setup:env\n" +
+      "Wcześniej uruchom `pnpm oauth:seed` w MonoriseCore (i usuń pusty AVEN_OAUTH_CLIENT_SECRET z apps/web/.env.local).",
+  );
+} else if (!coreSecret) {
   console.log(
     "Brak sekretu klienta avenmail-web: uruchom `pnpm oauth:seed` w MonoriseCore, potem jeszcze raz `pnpm setup:env`\n" +
       "(albo usuń pusty wpis AVEN_OAUTH_CLIENT_SECRET z apps/web/.env.local, żeby skrypt mógł go dopisać).",

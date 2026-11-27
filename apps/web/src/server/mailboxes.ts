@@ -1,11 +1,12 @@
 import "server-only";
 import type { MailAccount, MailAccountInput } from "@aven/contracts";
 import { uuidv7, withUser, type Actor, type MailAccountModel as MailAccountRow } from "@aven/db";
-import { verifyMailbox, type HostPolicy, type MailboxConfig } from "@aven/mail-engine";
+import { MailError, verifyMailbox, type HostPolicy, type MailboxConfig } from "@aven/mail-engine";
 import { ApiFailure } from "./api";
 import { config } from "./config";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { getDb } from "./db";
+import { notifyMailboxAlert, type NotifyMailboxAlertOptions } from "./notifications";
 
 /** Polityka połączeń: na produkcji tylko publiczne serwery i szyfrowanie; lokalnie także GreenMail. */
 export const policy = (): HostPolicy => ({
@@ -104,4 +105,48 @@ export async function mailboxConfig(actor: Actor, mailboxId: string): Promise<Ma
     imap: account.imap,
     smtp: account.smtp,
   };
+}
+
+/**
+ * Uruchamia operację IMAP lub SMTP na podłączonej skrzynce.
+ * Gdy serwer poczty odrzuci login albo hasło (`MAIL_AUTH_FAILED`), zleca best-effort
+ * alert w MonoriseCore (`avenmail.alerts`) i rzuca pierwotny błąd dalej.
+ */
+export async function runWithConnectedMailbox<T>(
+  actor: Actor,
+  mailboxId: string,
+  mailbox: MailboxConfig,
+  fn: (mailbox: MailboxConfig) => Promise<T>,
+  notificationOptions?: NotifyMailboxAlertOptions,
+): Promise<T> {
+  try {
+    return await fn(mailbox);
+  } catch (error) {
+    if (error instanceof MailError && error.code === "MAIL_AUTH_FAILED") {
+      await notifyMailboxAlert(
+        {
+          organizationId: actor.organizationId,
+          recipientAccountId: actor.userId,
+          mailboxId,
+          email: mailbox.email,
+        },
+        notificationOptions,
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Wczytuje konfigurację podłączonej skrzynki osoby i wykonuje na niej operację IMAP/SMTP
+ * z best-effort powiadomieniem w MonoriseCore przy błędzie logowania (`MAIL_AUTH_FAILED`).
+ */
+export async function withConnectedMailbox<T>(
+  actor: Actor,
+  mailboxId: string,
+  fn: (mailbox: MailboxConfig) => Promise<T>,
+  notificationOptions?: NotifyMailboxAlertOptions,
+): Promise<T> {
+  const mailbox = await mailboxConfig(actor, mailboxId);
+  return runWithConnectedMailbox(actor, mailboxId, mailbox, fn, notificationOptions);
 }

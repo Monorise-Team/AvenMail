@@ -11,12 +11,12 @@ import {
   type Folder,
   type MailAccount,
   type MailAccountInput,
+  type Me,
   type Message,
   type MessagePage,
   type MoveRequest,
   type SendRequest,
   type SendResult,
-  type User,
 } from "@aven/contracts";
 
 export class ApiError extends Error {
@@ -76,7 +76,7 @@ export function createClient({ baseUrl = "", getToken, fetch: fetchImpl = fetch 
 
   return {
     session: {
-      me: () => request<User>("GET", "/me"),
+      me: () => request<Me>("GET", "/me"),
       /**
        * Wylogowanie w przeglądarce (BFF): serwer kończy sesję i unieważnia token w Core. Odpowiedź to
        * przekierowanie, którego nie śledzimy; potem wystarczy ponownie zapytać o `me`.
@@ -115,13 +115,14 @@ export function createClient({ baseUrl = "", getToken, fetch: fetchImpl = fetch 
 }
 
 export type {
+  Capabilities,
   Folder,
   MailAccount,
   MailAccountInput,
+  Me,
   Message,
   MessagePage,
   MessageSummary,
-  User,
 } from "@aven/contracts";
 
 export {
