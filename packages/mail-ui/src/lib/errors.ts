@@ -4,8 +4,10 @@ import { ApiError } from "@aven/client";
 const MESSAGES: Record<string, string> = {
   UNAUTHENTICATED: "Sesja wygasła. Zaloguj się ponownie.",
   PERMISSION_DENIED: "Nie masz do tego dostępu.",
+  PRODUCT_ACCESS_REQUIRED: "AvenMail nie jest włączony dla Twojego konta. Poproś Ownera firmy o dostęp.",
   NOT_FOUND: "Nie znaleziono. Mogło zostać usunięte na innym urządzeniu.",
   VALIDATION_FAILED: "Sprawdź wpisane dane.",
+  CONFLICT: "Operacja jest w konflikcie z bieżącym stanem danych.",
   RATE_LIMITED: "Za dużo prób. Spróbuj ponownie za kilka minut.",
   MAIL_AUTH_FAILED:
     "Serwer poczty odrzucił login albo hasło. Sprawdź hasło (u części dostawców potrzebne jest hasło aplikacji).",

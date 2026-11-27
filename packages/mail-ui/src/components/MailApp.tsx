@@ -1,13 +1,15 @@
 "use client";
 
 import { ApiError, type AvenClient } from "@aven/client";
-import type { Folder, FolderRole, MailAccount, MessageSummary } from "@aven/contracts";
+import type { Folder, FolderRole, MailAccount, Me, MessageSummary } from "@aven/contracts";
 import {
+  AppearanceControls,
   AppShell,
   Avatar,
   Button,
   Card,
   CardHeader,
+  Dialog,
   EmptyState,
   ListItem,
   Menu,
@@ -16,7 +18,6 @@ import {
   MenuLabel,
   MenuSeparator,
   MenuTrigger,
-  ProgressBar,
   SidebarItem,
   SidebarNav,
   SidebarSection,
@@ -41,6 +42,7 @@ import {
   Inbox,
   LogOut,
   Moon,
+  Palette,
   PenSquare,
   Plus,
   RefreshCw,
@@ -51,13 +53,20 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  canManageMailboxes,
+  canReadMail,
+  canSendMail,
+  readAccountParam,
+  resolveAccessDenialMessage,
+} from "../lib/access.js";
 import { MailContext, useMailClient, type Platform } from "../lib/context.js";
 import { errorMessage } from "../lib/errors.js";
 import { displayName, FOLDER_NAMES, listDate, prefixSubject, quoteForReply } from "../lib/format.js";
 import { AccountDialog } from "./AccountDialog.js";
 import { Composer, emptyDraft, type Draft } from "./Composer.js";
 import { Reader } from "./Reader.js";
-import { SignIn } from "./SignIn.js";
+import { LoadErrorView, LoadingView, NoAccessView, SignIn } from "./SignIn.js";
 
 const ROLE_ICONS: Record<FolderRole, ReactNode> = {
   inbox: <Inbox />,
@@ -101,14 +110,23 @@ export function MailApp({ client, platform, signIn, signOut }: MailAppProps) {
 function Session() {
   const { client, signOut } = useMailClient();
   const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
   const me = useQuery({ queryKey: ["me"], queryFn: () => client.session.me(), retry: false });
 
+  const handleSignOut = useCallback(async () => {
+    setBusy(true);
+    try {
+      if (signOut) await signOut();
+      else await client.session.signOut().catch(() => null);
+      queryClient.clear();
+      await me.refetch();
+    } finally {
+      setBusy(false);
+    }
+  }, [client, me, queryClient, signOut]);
+
   if (me.isPending) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center p-10">
-        <ProgressBar label="Ładowanie AvenMail" className="max-w-xs" />
-      </div>
-    );
+    return <LoadingView />;
   }
   if (me.error) {
     if (me.error instanceof ApiError && me.error.status === 401) {
@@ -120,32 +138,23 @@ function Session() {
         />
       );
     }
+    return <LoadErrorView error={errorMessage(me.error)} onRetry={() => void me.refetch()} />;
+  }
+
+  const accessDenialMessage = resolveAccessDenialMessage(me.data.capabilities);
+  if (accessDenialMessage) {
     return (
-      <div className="flex min-h-dvh items-center justify-center p-6">
-        <EmptyState
-          icon={<ShieldAlert />}
-          title="Nie udało się połączyć z AvenMail"
-          description={errorMessage(me.error)}
-          action={
-            <Button variant="outline" icon={<RefreshCw />} onClick={() => void me.refetch()}>
-              Spróbuj ponownie
-            </Button>
-          }
-        />
-      </div>
+      <NoAccessView
+        me={me.data}
+        message={accessDenialMessage}
+        busy={busy || me.isFetching}
+        onRetry={() => void me.refetch()}
+        onSignOut={() => void handleSignOut()}
+      />
     );
   }
-  return (
-    <Mailbox
-      userName={me.data.name ?? me.data.email ?? "Konto Monorise"}
-      onSignOut={async () => {
-        if (signOut) await signOut();
-        else await client.session.signOut().catch(() => null);
-        queryClient.clear();
-        await me.refetch();
-      }}
-    />
-  );
+
+  return <Mailbox me={me.data} onSignOut={handleSignOut} />;
 }
 
 interface Selection {
@@ -153,14 +162,22 @@ interface Selection {
   uid: number | null;
 }
 
-function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => Promise<void> }) {
+function Mailbox({ me, onSignOut }: { me: Me; onSignOut: () => Promise<void> }) {
   const { client, platform } = useMailClient();
   const queryClient = useQueryClient();
   const { resolvedMode, setAppearance } = useTheme();
+  const userName = me.employee.fullName || me.account.email || "Konto Monorise";
+  const allowRead = canReadMail(me.capabilities);
+  const allowSend = canSendMail(me.capabilities);
+  const allowManageMailboxes = canManageMailboxes(me.capabilities);
+
   const accounts = useQuery({ queryKey: ["accounts"], queryFn: () => client.accounts.list() });
-  const [accountId, setAccountId] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : readAccountParam(window.location.search),
+  );
   const [selection, setSelection] = useState<Selection>({ folder: "INBOX", uid: null });
   const [accountDialog, setAccountDialog] = useState(false);
+  const [appearanceDialog, setAppearanceDialog] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
 
   const account: MailAccount | undefined = accounts.data?.find((a) => a.id === accountId) ?? accounts.data?.[0];
@@ -169,7 +186,7 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
   const folders = useQuery({
     queryKey: ["folders", activeId],
     queryFn: () => client.mail.folders(activeId!),
-    enabled: Boolean(activeId),
+    enabled: Boolean(activeId && allowRead),
   });
 
   const messages = useInfiniteQuery({
@@ -177,7 +194,7 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
     queryFn: ({ pageParam }) => client.mail.messages(activeId!, selection.folder, pageParam, PAGE_SIZE),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.page * last.pageSize < last.total ? last.page + 1 : undefined),
-    enabled: Boolean(activeId),
+    enabled: Boolean(activeId && allowRead),
   });
   const list: MessageSummary[] = useMemo(
     () => messages.data?.pages.flatMap((page) => page.messages) ?? [],
@@ -187,7 +204,7 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
   const message = useQuery({
     queryKey: ["message", activeId, selection.folder, selection.uid],
     queryFn: () => client.mail.message(activeId!, selection.folder, selection.uid!),
-    enabled: Boolean(activeId && selection.uid),
+    enabled: Boolean(activeId && selection.uid && allowRead),
     staleTime: 5 * 60_000,
   });
 
@@ -218,7 +235,7 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
 
   const reply = useCallback(
     (all: boolean) => {
-      if (!opened || !account) return;
+      if (!allowSend || !opened || !account) return;
       const others = all
         ? [...opened.to, ...opened.cc].filter((a) => a.address.toLowerCase() !== account.email.toLowerCase())
         : [];
@@ -232,23 +249,23 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
         references: [...opened.references, ...(opened.messageId ? [opened.messageId] : [])],
       });
     },
-    [account, opened],
+    [account, allowSend, opened],
   );
 
   const forward = useCallback(() => {
-    if (!opened) return;
+    if (!allowSend || !opened) return;
     setDraft({
       ...emptyDraft,
       subject: prefixSubject("Fwd", opened.subject),
       text: quoteForReply(opened.text, opened.from, opened.date),
     });
-  }, [opened]);
+  }, [allowSend, opened]);
 
   // Skróty klawiszowe jak w desktopowym Aven
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
-      if (event.metaKey || event.ctrlKey || event.altKey || draft || accountDialog) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || draft || accountDialog || appearanceDialog) return;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       const index = list.findIndex((m) => m.uid === selection.uid);
       const go = (next: number) => {
@@ -257,32 +274,41 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
       };
       switch (event.key) {
         case "j":
-          go(index + 1);
+          if (allowRead) go(index + 1);
+          else return;
           break;
         case "k":
-          go(index - 1);
+          if (allowRead) go(index - 1);
+          else return;
           break;
         case "c":
-          setDraft(emptyDraft);
+          if (allowSend) setDraft(emptyDraft);
+          else return;
           break;
         case "r":
-          reply(false);
+          if (allowSend) reply(false);
+          else return;
           break;
         case "a":
-          reply(true);
+          if (allowSend) reply(true);
+          else return;
           break;
         case "f":
-          forward();
+          if (allowSend) forward();
+          else return;
           break;
         case "s":
-          if (opened) setFlags.mutate({ uid: opened.uid, flagged: !opened.flagged });
+          if (allowRead && opened) setFlags.mutate({ uid: opened.uid, flagged: !opened.flagged });
+          else return;
           break;
         case "u":
-          if (opened) setFlags.mutate({ uid: opened.uid, seen: false });
+          if (allowRead && opened) setFlags.mutate({ uid: opened.uid, seen: false });
+          else return;
           break;
         case "#":
         case "Delete":
-          if (selection.uid) remove.mutate(selection.uid);
+          if (allowRead && selection.uid) remove.mutate(selection.uid);
+          else return;
           break;
         case "Escape":
           setSelection((current) => ({ ...current, uid: null }));
@@ -294,7 +320,20 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [accountDialog, draft, forward, list, opened, remove, reply, selection.uid, setFlags]);
+  }, [
+    accountDialog,
+    allowRead,
+    allowSend,
+    appearanceDialog,
+    draft,
+    forward,
+    list,
+    opened,
+    remove,
+    reply,
+    selection.uid,
+    setFlags,
+  ]);
 
   const titleBar =
     platform === "desktop" ? (
@@ -321,6 +360,30 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
     );
   }
 
+  if (accounts.error) {
+    return (
+      <AppShell titleBar={titleBar}>
+        <Card surface="reading" className="flex flex-1 items-center justify-center">
+          <EmptyState
+            icon={<ShieldAlert />}
+            title="Nie udało się pobrać skrzynek"
+            description={errorMessage(accounts.error)}
+            action={
+              <div className="flex flex-wrap gap-2">
+                <Button variant="primary" icon={<RefreshCw />} onClick={() => void accounts.refetch()}>
+                  Spróbuj ponownie
+                </Button>
+                <Button variant="secondary" icon={<LogOut />} onClick={() => void onSignOut()}>
+                  Wyloguj się
+                </Button>
+              </div>
+            }
+          />
+        </Card>
+      </AppShell>
+    );
+  }
+
   if (!account) {
     return (
       <AppShell titleBar={titleBar}>
@@ -328,15 +391,28 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
           <EmptyState
             icon={<Inbox />}
             title={`Witaj, ${userName}`}
-            description="Dodaj pierwszą skrzynkę: wystarczy adres i hasło. Serwery podpowiemy dla znanych dostawców."
+            description={
+              allowManageMailboxes
+                ? "Dodaj pierwszą skrzynkę: wystarczy adres i hasło. Serwery podpowiemy dla znanych dostawców."
+                : "Nie masz jeszcze podłączonej skrzynki pocztowej. Poproś administratora firmy o uprawnienie zarządzania skrzynkami."
+            }
             action={
-              <Button variant="primary" size="lg" icon={<Plus />} onClick={() => setAccountDialog(true)}>
-                Dodaj skrzynkę
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                {allowManageMailboxes ? (
+                  <Button variant="primary" size="lg" icon={<Plus />} onClick={() => setAccountDialog(true)}>
+                    Dodaj skrzynkę
+                  </Button>
+                ) : null}
+                <Button variant="secondary" size="lg" icon={<LogOut />} onClick={() => void onSignOut()}>
+                  Wyloguj się
+                </Button>
+              </div>
             }
           />
         </Card>
-        <AccountDialog open={accountDialog} onOpenChange={setAccountDialog} onCreated={setAccountId} />
+        {allowManageMailboxes ? (
+          <AccountDialog open={accountDialog} onOpenChange={setAccountDialog} onCreated={setAccountId} />
+        ) : null}
       </AppShell>
     );
   }
@@ -364,6 +440,10 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
             </button>
           </MenuTrigger>
           <MenuContent align="start" className="w-60">
+            <MenuLabel>
+              {userName} · {me.organization.name}
+            </MenuLabel>
+            <MenuSeparator />
             <MenuLabel>Skrzynki</MenuLabel>
             {accounts.data?.map((item) => (
               <MenuItem
@@ -376,9 +456,11 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
                 {item.email}
               </MenuItem>
             ))}
-            <MenuItem icon={<Plus />} onSelect={() => setAccountDialog(true)}>
-              Dodaj skrzynkę
-            </MenuItem>
+            {allowManageMailboxes ? (
+              <MenuItem icon={<Plus />} onSelect={() => setAccountDialog(true)}>
+                Dodaj skrzynkę
+              </MenuItem>
+            ) : null}
             <MenuSeparator />
             <MenuItem
               icon={resolvedMode === "dark" ? <Sun /> : <Moon />}
@@ -386,22 +468,29 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
             >
               {resolvedMode === "dark" ? "Tryb jasny" : "Tryb ciemny"}
             </MenuItem>
+            <MenuItem icon={<Palette />} onSelect={() => setAppearanceDialog(true)}>
+              Wygląd
+            </MenuItem>
             <MenuItem icon={<LogOut />} onSelect={() => void onSignOut()}>
               Wyloguj się
             </MenuItem>
           </MenuContent>
         </Menu>
-        <Button
-          variant="primary"
-          size="lg"
-          icon={<PenSquare />}
-          className="w-full rounded-full"
-          onClick={() => setDraft(emptyDraft)}
-        >
-          Napisz
-        </Button>
+        {allowSend ? (
+          <Button
+            variant="primary"
+            size="lg"
+            icon={<PenSquare />}
+            className="w-full rounded-full"
+            onClick={() => setDraft(emptyDraft)}
+          >
+            Napisz
+          </Button>
+        ) : null}
         <SidebarNav aria-label="Foldery" className="min-h-0 flex-1 overflow-y-auto">
-          {folders.isPending ? (
+          {!allowRead ? (
+            <p className="px-2 text-xs text-text-tertiary">Brak uprawnienia do odczytu poczty.</p>
+          ) : folders.isPending ? (
             <div className="flex flex-col gap-2 px-2">
               {Array.from({ length: 6 }, (_, i) => (
                 <Skeleton key={i} className="h-6 w-full" />
@@ -451,18 +540,26 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
           <span className="truncate text-sm font-semibold">
             {currentFolder ? folderLabel(currentFolder) : selection.folder}
           </span>
-          <Button
-            iconOnly
-            variant="ghost"
-            aria-label="Odśwież"
-            onClick={() => void refreshLists()}
-            disabled={messages.isFetching}
-          >
-            <RefreshCw className={messages.isFetching ? "animate-spin" : undefined} />
-          </Button>
+          {allowRead ? (
+            <Button
+              iconOnly
+              variant="ghost"
+              aria-label="Odśwież"
+              onClick={() => void refreshLists()}
+              disabled={messages.isFetching}
+            >
+              <RefreshCw className={messages.isFetching ? "animate-spin" : undefined} />
+            </Button>
+          ) : null}
         </CardHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2" role="list" aria-label="Wiadomości">
-          {messages.isPending ? (
+          {!allowRead ? (
+            <EmptyState
+              icon={<ShieldAlert />}
+              title="Brak uprawnienia do odczytu"
+              description="Twoja rola nie pozwala na przeglądanie wiadomości."
+            />
+          ) : messages.isPending ? (
             Array.from({ length: 8 }, (_, i) => (
               <div key={i} className="flex gap-3 px-3 py-2.5">
                 <Skeleton className="size-8 rounded-full" />
@@ -525,8 +622,19 @@ function Mailbox({ userName, onSignOut }: { userName: string; onSignOut: () => P
         }}
       />
 
-      <AccountDialog open={accountDialog} onOpenChange={setAccountDialog} onCreated={setAccountId} />
-      {draft ? (
+      {allowManageMailboxes ? (
+        <AccountDialog open={accountDialog} onOpenChange={setAccountDialog} onCreated={setAccountId} />
+      ) : null}
+      <Dialog
+        open={appearanceDialog}
+        onOpenChange={setAppearanceDialog}
+        title="Wygląd"
+        description="Ustawienia zapisują się w tej przeglądarce i działają od razu w całej aplikacji."
+        className="max-w-xl"
+      >
+        <AppearanceControls />
+      </Dialog>
+      {draft && allowSend ? (
         <Composer
           accountId={account.id}
           from={account.displayName ? `${account.displayName} <${account.email}>` : account.email}
