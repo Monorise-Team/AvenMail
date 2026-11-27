@@ -25,9 +25,9 @@
     "check": "pnpm format:check && pnpm check:versions && pnpm openapi:check && turbo run lint typecheck test build",
     "setup:env": "node scripts/setup-env.mjs",
     "permissions:register": "pnpm --filter @aven/web permissions:register",
-    "db:up": "docker compose up -d postgres",
+    "db:up": "docker compose up -d database",
     "db:migrate": "pnpm --filter @aven/db migrate:deploy && pnpm --filter @aven/db migrate:deploy:test",
-    "mail:test-server": "docker compose up -d greenmail",
+    "mail:test-server": "docker compose up -d test-mail-server",
     "shared:update": "node scripts/shared.mjs update",
     "prepare": "husky"
   },

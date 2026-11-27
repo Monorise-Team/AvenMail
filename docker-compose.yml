@@ -6,7 +6,8 @@
 name: aven-mail
 
 services:
-  postgres:
+  database:
+    container_name: aven-mail-database
     image: postgres:17-alpine
     environment:
       POSTGRES_PASSWORD: postgres
@@ -15,7 +16,8 @@ services:
     volumes:
       - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - aven-mail-postgres:/var/lib/postgresql/data
-  greenmail:
+  test-mail-server:
+    container_name: aven-mail-test-mail-server
     image: greenmail/standalone:2.1.5
     environment:
       GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.verbose"
