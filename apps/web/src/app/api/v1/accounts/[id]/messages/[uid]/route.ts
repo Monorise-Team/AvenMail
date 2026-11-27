@@ -1,9 +1,10 @@
-import { FlagsRequest } from "@aven/contracts";
+import { AVENMAIL_PERMISSIONS, FlagsRequest } from "@aven/contracts";
 import { deleteMessage, getMessage, setFlags } from "@aven/mail-engine";
 import { z } from "zod";
 import { readJson, route } from "@/server/api";
 import { requireUser } from "@/server/auth";
-import { mailboxConfig, policy } from "@/server/mailboxes";
+import { policy, withConnectedMailbox } from "@/server/mailboxes";
+import { assertPermission } from "@/server/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -18,19 +19,25 @@ const target = (url: URL, params: Params) => Target.parse({ uid: params.uid, fol
 
 export const GET = route<Params>(async ({ request, params }) => {
   const user = await requireUser(request);
-  return getMessage(await mailboxConfig(user, params.id), policy(), target(request.nextUrl, params));
+  await assertPermission(user, AVENMAIL_PERMISSIONS.keys["mail.read"]);
+  const messageTarget = target(request.nextUrl, params);
+  return withConnectedMailbox(user, params.id, (mailbox) => getMessage(mailbox, policy(), messageTarget));
 });
 
 /** Przeczytana albo nie, z gwiazdką albo bez: { "seen": true } */
 export const PATCH = route<Params>(async ({ request, params }) => {
   const user = await requireUser(request);
+  await assertPermission(user, AVENMAIL_PERMISSIONS.keys["mail.read"]);
   const flags = FlagsRequest.parse(await readJson(request));
-  await setFlags(await mailboxConfig(user, params.id), policy(), { ...target(request.nextUrl, params), ...flags });
+  const messageTarget = target(request.nextUrl, params);
+  await withConnectedMailbox(user, params.id, (mailbox) => setFlags(mailbox, policy(), { ...messageTarget, ...flags }));
   return null;
 });
 
 /** Do kosza, a z kosza na stałe. */
 export const DELETE = route<Params>(async ({ request, params }) => {
   const user = await requireUser(request);
-  return deleteMessage(await mailboxConfig(user, params.id), policy(), target(request.nextUrl, params));
+  await assertPermission(user, AVENMAIL_PERMISSIONS.keys["mail.read"]);
+  const messageTarget = target(request.nextUrl, params);
+  return withConnectedMailbox(user, params.id, (mailbox) => deleteMessage(mailbox, policy(), messageTarget));
 });
