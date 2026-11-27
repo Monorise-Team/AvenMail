@@ -1,6 +1,6 @@
 # Baza danych AvenMail
 
-AvenMail korzysta z bazy PostgreSQL 17 i Prisma 7 w paczce `packages/db` (`@aven/db`, ADR-0096). Lokalnie baza działa w Dockerze na porcie `5434` (kontener `aven-mail-postgres-1`), żeby nie kolidować z Core (`5433`), TimoTime (`5435`) i KivoTasks (`5436`).
+AvenMail korzysta z bazy PostgreSQL 17 i Prisma 7 w paczce `packages/db` (`@aven/db`, ADR-0096). Lokalnie baza działa w Dockerze na porcie `5434` (kontener `aven-mail-database`), żeby nie kolidować z Core (`5433`), TimoTime (`5435`) i KivoTasks (`5436`).
 
 ## Role i bazy (`docker/postgres-init.sql`)
 

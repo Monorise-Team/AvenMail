@@ -29,7 +29,7 @@ pnpm oauth:seed
 
 pnpm install
 pnpm setup:env            # apps/web/.env.local i packages/db/.env; sekret klienta bierze z MonoriseCore
-pnpm db:up                # PostgreSQL w Dockerze (kontener aven-mail-postgres-1, port 5434)
+pnpm db:up                # PostgreSQL w Dockerze (kontener aven-mail-database, port 5434)
 pnpm db:migrate           # migracje bazy aven_mail i bazy testów aven_mail_test
 pnpm permissions:register # rejestracja uprawnień avenmail.* i gotowych ról w MonoriseCore
 pnpm mail:test-server     # GreenMail: IMAP 3143, SMTP 3025 (każdy login i hasło działają)
@@ -83,7 +83,7 @@ Następnie w Core API (`http://localhost:3200/core/v1`, z tokenem Ownera firmy) 
 
 - **Kanał zdarzeń Core (ADR-0100):** `apps/web/src/instrumentation.ts` uruchamia odpytywanie `GET /core/v1/products/avenmail/events` (`AVEN_EVENT_FEED_INTERVAL_MS`, domyślnie `5000` ms w `development`, `0` poza nim). Zdarzenie `organization.permissions.changed` natychmiast unieważnia pamięć podręczną uprawnień dla wskazanej firmy i konta, a `organization.account.deactivated` dodatkowo usuwa sesje BFF tego konta z bazy.
 - **Alerty skrzynek (ADR-0048):** gdy serwer wykryje odrzucone logowanie do podłączonej skrzynki (`MAIL_AUTH_FAILED`), zleca best-effort powiadomienie e-mail w Core (`avenmail.alerts`) z linkiem do tej skrzynki i deterministycznym `Idempotency-Key`.
-- **Baza danych:** PostgreSQL na porcie `5434` (kontener `aven-mail-postgres-1`). Serwer łączy się rolą `aven_mail_app`, którą obowiązuje wymuszone RLS na `mail_accounts` (skrzynkę widzi tylko jej właściciel w swojej firmie, ADR-0037). Baza zawiera także tabele techniczne (`auth.sessions`, `public.event_feed_cursors`, `public.processed_events`).
+- **Baza danych:** PostgreSQL na porcie `5434` (kontener `aven-mail-database`). Serwer łączy się rolą `aven_mail_app`, którą obowiązuje wymuszone RLS na `mail_accounts` (skrzynkę widzi tylko jej właściciel w swojej firmie, ADR-0037). Baza zawiera także tabele techniczne (`auth.sessions`, `public.event_feed_cursors`, `public.processed_events`).
 
 ## Polecenia i kontrole
 
