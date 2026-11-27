@@ -11,8 +11,10 @@ export const API_PREFIX = "/api/v1";
 export const ERROR_CODES = [
   "UNAUTHENTICATED",
   "PERMISSION_DENIED",
+  "PRODUCT_ACCESS_REQUIRED",
   "NOT_FOUND",
   "VALIDATION_FAILED",
+  "CONFLICT",
   "RATE_LIMITED",
   "MAIL_AUTH_FAILED",
   "MAIL_CONNECTION_FAILED",
@@ -21,13 +23,47 @@ export const ERROR_CODES = [
   "MAIL_REJECTED",
   "INTERNAL_ERROR",
 ] as const;
+export const ErrorCode = z.enum(ERROR_CODES);
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
-export interface ApiErrorBody {
-  code: ErrorCode;
-  message: string;
-  details: { field?: string; message: string }[];
+export const ApiErrorDetail = z.object({
+  field: z.string().optional(),
+  message: z.string(),
+});
+export type ApiErrorDetail = z.infer<typeof ApiErrorDetail>;
+
+export const ApiErrorBody = z.object({
+  code: ErrorCode,
+  message: z.string(),
+  details: z.array(ApiErrorDetail),
+});
+export type ApiErrorBody = z.infer<typeof ApiErrorBody>;
+
+export const ApiMeta = z.object({
+  requestId: z.string(),
+});
+export type ApiMeta = z.infer<typeof ApiMeta>;
+
+/** Koperta udanej odpowiedzi API AvenMail: `{ data, meta, error: null }` (ADR-0044). */
+export function apiSuccessSchema<T extends z.ZodType>(data: T) {
+  return z.object({
+    data,
+    meta: ApiMeta,
+    error: z.null(),
+  });
 }
+
+/** Koperta odpowiedzi błędu API AvenMail: `{ data: null, meta, error }` (ADR-0044). */
+export function apiErrorSchema<T extends z.ZodType = typeof ApiErrorBody>(error?: T) {
+  return z.object({
+    data: z.null(),
+    meta: ApiMeta,
+    error: (error ?? ApiErrorBody) as T,
+  });
+}
+
+export const ApiErrorResponse = apiErrorSchema();
+export type ApiErrorResponse = z.infer<typeof ApiErrorResponse>;
 
 export interface ApiResponse<T> {
   data: T | null;
@@ -35,19 +71,41 @@ export interface ApiResponse<T> {
   error: ApiErrorBody | null;
 }
 
-// ── Zalogowana osoba ────────────────────────────────────────────────────────
-
-/**
- * Konto Monorise i jego firma (logowanie przez MonoriseCore, ADR-0095). Imię i e-mail podaje Core;
- * gdy Core jest chwilowo niedostępny, mogą być puste.
- */
-export const User = z.object({
-  id: z.string(),
-  organizationId: z.string(),
-  email: z.string().nullable(),
-  name: z.string().nullable(),
+export const Health = z.object({
+  status: z.literal("ok"),
+  version: z.string().nullable(),
 });
-export type User = z.infer<typeof User>;
+export type Health = z.infer<typeof Health>;
+
+// ── Zalogowana osoba i firma (z MonoriseCore) ───────────────────────────────
+
+export const Capabilities = z.object({
+  hasProductAccess: z.boolean(),
+  readMail: z.boolean(),
+  sendMail: z.boolean(),
+  manageMailboxes: z.boolean(),
+});
+export type Capabilities = z.infer<typeof Capabilities>;
+
+export const Me = z.object({
+  account: z.object({
+    id: z.string(),
+    email: z.string(),
+  }),
+  employee: z.object({
+    id: z.string(),
+    firstName: z.string(),
+    lastName: z.string(),
+    fullName: z.string(),
+    jobTitle: z.string().nullable(),
+  }),
+  organization: z.object({
+    id: z.string(),
+    name: z.string(),
+  }),
+  capabilities: Capabilities,
+});
+export type Me = z.infer<typeof Me>;
 
 // ── Skrzynki ────────────────────────────────────────────────────────────────
 
@@ -89,6 +147,14 @@ export const MailAccount = z.object({
 });
 export type MailAccount = z.infer<typeof MailAccount>;
 
+export const MailAccountsList = z.array(MailAccount);
+export type MailAccountsList = z.infer<typeof MailAccountsList>;
+
+export const TestAccountResult = z.object({
+  ok: z.literal(true),
+});
+export type TestAccountResult = z.infer<typeof TestAccountResult>;
+
 // ── Foldery i wiadomości ────────────────────────────────────────────────────
 
 export const FolderRole = z.enum(["inbox", "sent", "drafts", "trash", "junk", "archive", "flagged", "all"]);
@@ -103,6 +169,9 @@ export const Folder = z.object({
   unread: z.number().int(),
 });
 export type Folder = z.infer<typeof Folder>;
+
+export const FoldersList = z.array(Folder);
+export type FoldersList = z.infer<typeof FoldersList>;
 
 export const Address = z.object({
   name: z.string().nullable(),
@@ -170,6 +239,14 @@ export type FlagsRequest = z.infer<typeof FlagsRequest>;
 export const MoveRequest = z.object({ to: z.string().min(1).max(1000) });
 export type MoveRequest = z.infer<typeof MoveRequest>;
 
+export const DeleteMessageResult = z.object({
+  permanently: z.boolean(),
+});
+export type DeleteMessageResult = z.infer<typeof DeleteMessageResult>;
+
+export const EmptyResult = z.null();
+export type EmptyResult = z.infer<typeof EmptyResult>;
+
 export const SendRequest = z.object({
   to: z.array(Address).min(1).max(100),
   cc: z.array(Address).max(100).default([]),
@@ -189,3 +266,4 @@ export const SendResult = z.object({
 export type SendResult = z.infer<typeof SendResult>;
 
 export * from "./providers.js";
+export * from "./permissions.js";
