@@ -7,8 +7,6 @@ import { CoreMachineTokenError } from "./core-machine";
 /** Kategoria powiadomień e-mail MonoriseCore o problemach z połączeniem ze skrzynką w AvenMail (ADR-0048). */
 export const AVENMAIL_ALERTS_NOTIFICATION_CATEGORY = "avenmail.alerts" as const;
 
-type SdkNotificationCategory = Parameters<CoreClient["sendNotification"]>[0]["body"]["category"];
-
 /** Krótki limit czasu dla best-effort zlecenia powiadomienia do MonoriseCore (ms). */
 export const DEFAULT_NOTIFICATION_TIMEOUT_MS = 3_000;
 
@@ -128,9 +126,7 @@ export async function notifyMailboxAlert(
       path: { organizationId: params.organizationId },
       body: {
         recipientAccountId: params.recipientAccountId,
-        // `@monorise-team/sdk` 0.0.1-dev.26 nie zawiera jeszcze `"avenmail.alerts"` w unii
-        // `NotificationCategoryKey` (do usunięcia po dodaniu kategorii w MonoriseCore i odświeżeniu SDK).
-        category: AVENMAIL_ALERTS_NOTIFICATION_CATEGORY as unknown as SdkNotificationCategory,
+        category: AVENMAIL_ALERTS_NOTIFICATION_CATEGORY,
         title,
         body,
         ...(actionUrl ? { actionUrl } : {}),
